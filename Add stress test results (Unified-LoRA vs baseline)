@@ -1,0 +1,81 @@
+## 🔬 Stress Test on Tinker's LoRA API (Unified-LoRA vs Fixed-LR Baseline)
+
+To evaluate whether the Unified-LoRA controller provides practical benefits during
+online LoRA training, I performed a controlled stress test using Tinker’s  
+`meta-llama/Llama-3.2-1B` LoRA API.
+
+The setup:
+
+- Task: toy Pig-Latin translation  
+- Two datasets: **clean** (normal) and **corrupted** (shock)  
+- Two synthetic shock windows: **[200–300]** and **[500–600]**  
+- Unified-LoRA controller:  
+  - Modes: **Single → Multi → Mirror**  
+  - LR: **2e-3 → 5e-4 → 1e-4**  
+  - Stress signal ϕ computed from smoothed error *Eₛ*  
+- Baseline: standard LoRA with **fixed LR = 5e-4**
+
+---
+
+## 📈 1. Loss Dynamics Under Shock
+
+### Unified-LoRA (adaptive)
+| Step | Shock | Loss     | Mode | LR       |
+|------|--------|----------|------|----------|
+| 200  | Yes    | 18.42    | Single → Multi | ↓ |
+| 225  | Yes    | 2.56     | Multi          | 5e-4 |
+| 250  | Yes    | 0.0015   | Multi          | 5e-4 |
+| 275  | Yes    | 0.0010   | Mirror         | 1e-4 |
+| 300  | No     | 4.27     | Mirror         | 1e-4 |
+| 350  | No     | **0.0004** | Multi → Single | ↑ |
+
+➡️ **Shock absorbed quickly; full recovery by step ~350.**  
+➡️ No large overshoots after shock ends.
+
+---
+
+### Baseline (fixed LR = 5e-4)
+| Step | Shock | Loss     |
+|------|--------|----------|
+| 200  | Yes    | 9.28     |
+| 225  | Yes    | 1.89     |
+| 250  | Yes    | 3.43 ⬅️ rebound |
+| 275  | Yes    | 0.10     |
+| 300  | No     | **13.09** ⬅️ massive overshoot |
+| 350  | No     | 3.70     |
+| 600  | No     | 11.45 (after second shock) |
+
+➡️ **Recovery is unstable and significantly slower.**  
+➡️ Large overshoots even *after* the shock window ends.
+
+---
+
+## 🧠 2. What the Test Demonstrates
+
+### ✅ Unified-LoRA adapts to stress  
+The controller switches modes based on the stress signal ϕ:
+``Single → Multi → Mirror``  
+with progressively smaller learning rates.
+
+### ✅ Unified-LoRA stabilizes training faster  
+In both shock windows, Unified-LoRA suppresses the loss to ~0.001 within ~50 steps
+and returns to stable training shortly after the shock ends.
+
+### ❌ Baseline (fixed LR) is fragile  
+It shows:
+- repeated overshoots  
+- unstable behavior after shock windows  
+- slow return to low loss values  
+
+### 🎯 Conclusion  
+**Unified-LoRA improves robustness during online LoRA training.**  
+It reacts to distribution shifts automatically and maintains stability,  
+while a fixed-LR LoRA setup exhibits large instabilities and delayed recovery.
+
+---
+
+## 📎 Code Availability
+
+The exact scripts used for the stress test are available in `stress_test/`  
+and integrate directly with Tinker’s LoRA API (`create_lora_training_client`).
+
