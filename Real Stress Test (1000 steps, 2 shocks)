@@ -1,6 +1,6 @@
 🧪 Real Stress Test (1000 steps, 2 shocks) — Unified-LoRA v2
 
-In this experiment we evaluate Unified-LoRA under realistic training noise, using:
+In this experiment, we evaluate Unified-LoRA under realistic training noise, using:
 
 Llama-3.2-1B
 
