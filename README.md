@@ -38,18 +38,18 @@ This experiment illustrates the behavior of **φ(t)** under induced instability;
 
 ### 📊 Standard Benchmark (GLUE MRPC + DistilBERT)
 
-Performance parity with baseline LoRA:
+Observed comparable performance to baseline LoRA on GLUE MRPC under the reported configuration:
 
 | Method | F1 | Accuracy | φ final | Mode |
 |--------|-----|----------|---------|------|
 | Baseline LoRA | 0.785 | 0.646 | - | - |
 | Unified LoRA | 0.785 | 0.646 | 0.367 | 1 |
 
-**Key finding**: Zero degradation with adaptive control active
+Key observation (this run):  
+No performance degradation observed with adaptive control active in the reported setup.
 
 ## Quick Start
 
-```python
 from unified_lora import UnifiedController
 
 # Initialize controller
@@ -64,71 +64,57 @@ controller = UnifiedController(
 for step, batch in enumerate(train_loader):
     outputs = model(**batch)
     loss = outputs.loss
-    
+
     # Update controller and get adaptive LR
     new_lr = controller.update(loss.item())
-    
+
     # Apply new learning rate
     for g in optimizer.param_groups:
         g['lr'] = new_lr
-    
+
     # Standard backprop
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()
-```
 
 ## Technical Details
 
 ### FSM State Transitions
 
-```
-φ < 0.3  → Mode 0 (Single)   LR = 5e-5
-φ < 0.7  → Mode 1 (Multi)    LR = 3e-5
-φ ≥ 0.7  → Mode 2 (Mirror)   LR = 1e-5
-```
+φ < 0.3  → Mode 0 (Single)   LR = 5e-5  
+φ < 0.7  → Mode 1 (Multi)    LR = 3e-5  
+φ ≥ 0.7  → Mode 2 (Mirror)   LR = 1e-5  
 
 ### Stress Signal Computation
 
-The metrics **C** (conflict), **E** (error), and **S** (stability) are normalized to [0,1] to maintain φ(t) well-conditioned:
+The metrics C (conflict), E (error), and S (stability) are normalized to [0,1] to keep φ(t) well-conditioned:
 
-```python
-E_smooth = β * E_smooth + (1 - β) * loss
-D = E_smooth / (1 + E_smooth)  # Normalize to [0,1]
-φ = (1 - α) * φ + α * D         # EMA update
-```
+E_smooth = β * E_smooth + (1 - β) * loss  
+D = E_smooth / (1 + E_smooth)  
+φ = (1 - α) * φ + α * D  
 
-This normalization ensures stable FSM transitions and prevents numerical instabilities during training.
+This normalization supports stable FSM transitions and reduces numerical sensitivity during training.
 
 ## Installation
 
-```bash
 pip install transformers peft torch
-```
 
 ## Citation
 
-If you use Unified LoRA in your research, please cite:
-
-```bibtex
 @software{unified_lora_2025,
   author = {Simona Vargiu},
   title = {Unified LoRA: Adaptive Parameter-Efficient Fine-Tuning},
   year = {2025},
   url = {https://github.com/Sva76/Unified-LoRA}
 }
-```
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) for details.
+Apache License 2.0 — see LICENSE for details.
 
 ## Contact
 
-**Simona Vargiu** (Independent Researcher)
+Simona Vargiu (Independent Researcher)  
+For collaboration inquiries: simona.vargiu.malta@gmail.com
 
-For collaboration inquiries: [simona.vargiu.malta@gmail.com](mailto:simona.vargiu.malta@gmail.com)
-
----
-
-**Status**: Validated on production LLM (Tinker/Llama-3.2-1B) and standard benchmarks (GLUE MRPC). Ready for research collaboration and testing.
+Status: Demonstrated on (1) a Tinker Llama-3.2-1B run showing adaptive stress → recovery behavior and (2) the GLUE MRPC benchmark (DistilBERT) with comparable F1/Accuracy to baseline LoRA under the reported configuration. Broader benchmarks and statistical evaluation across seeds and tasks are ongoing. Open to research collaboration and extended evaluation.
