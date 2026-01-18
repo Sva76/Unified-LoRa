@@ -17,26 +17,24 @@ The system uses a synaptic control parameter **φ(t)** derived from:
 - **E**: Multi-task error
 - **S**: Memory stability
 
-```
 φ(t) = f(C, E, S, ΔC, ΔE, ΔS)
-```
 
 ## Validation Results
 
-### 🧪 Production LLM (Tinker + Llama-3.2-1B)
+### 🧪 Tinker run (Llama-3.2-1B, cloud GPU)
 
-Full stress→recovery cycle demonstrated on cloud GPU:
+A controlled run demonstrating a full **stress → recovery cycle** and adaptive mode switching.  
+This experiment illustrates the behavior of **φ(t)** under induced instability; it is **not a production deployment claim**.
 
-```
-[250] Mode=1 φ=0.333 E_s=0.500 lr=5e-4  (Multi stable)
->>> SHOCK @ step 300
-[350] Mode=2 φ=0.827 E_s=4.979 lr=1e-4  (Mirror activated)
->>> RECOVERY @ step 500
-[550] Mode=1 φ=0.371 E_s=0.521 lr=5e-4  (Multi return)
+[250] Mode=1 φ=0.333 E_s=0.500 lr=5e-4  (Multi stable)  
+>>> SHOCK @ step 300  
+[350] Mode=2 φ=0.827 E_s=4.979 lr=1e-4  (Mirror activated)  
+>>> RECOVERY @ step 500  
+[550] Mode=1 φ=0.371 E_s=0.521 lr=5e-4  (Multi return)  
 [700] Mode=1 φ=0.333 E_s=0.500 lr=5e-4  (baseline restored)
-```
 
-**Key finding**: Complete reversibility (φ: 0.33 → 0.83 → 0.33)
+**Key observation (this run):**  
+φ returns close to its pre-shock regime after recovery (example: 0.33 → 0.83 → 0.33), indicating reversible stress handling within this setup.
 
 ### 📊 Standard Benchmark (GLUE MRPC + DistilBERT)
 
