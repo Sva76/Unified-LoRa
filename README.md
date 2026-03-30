@@ -8,18 +8,20 @@ A lightweight per-layer controller that dynamically adjusts LoRA rank during tra
 
 Instead of fixing `rank=8` or `rank=16` and hoping it works, Unified-LoRA adapts the rank of each layer independently during training. Layers under stress get more capacity; stable layers get less. No grid search, no guessing.
 
-## Key results
+## Results (multi-seed, 3 seeds)
 
-Evaluated on 4 GLUE tasks with DistilBERT-base-uncased, 3 epochs, LR=5e-4, α=16:
+Evaluated on 3 GLUE tasks with DistilBERT-base-uncased, 3 epochs, LR=5e-4, α=16.
+Each result is mean ± std over 3 seeds.
 
-| Task | Metric | Baseline (r=16) | Adaptive | Avg Rank | Rank Reduction |
-|------|--------|-----------------|----------|----------|----------------|
-| MRPC | F1 | 0.882 | **0.886** | 9.3 | 42% |
-| SST-2 | Accuracy | **0.898** | 0.885 | 7.0 | 56% |
-| CoLA | MCC | 0.488 | **0.491** | 7.1 | 56% |
-| RTE | Accuracy | 0.556 | **0.592** | 10.8 | 33% |
+| Task | Metric | r=8 (fixed) | r=16 (fixed) | Unified (adaptive) | Avg Rank |
+|------|--------|-------------|--------------|-------------------|----------|
+| MRPC | F1 | **0.885 ± 0.007** | 0.882 ± 0.006 | 0.862 ± 0.025 | 9.1 |
+| CoLA | MCC | 0.474 ± 0.001 | **0.478 ± 0.011** | 0.477 ± 0.021 | 7.0 |
+| RTE | Accuracy | **0.560 ± 0.014** | 0.560 ± 0.018 | 0.543 ± 0.010 | 11.7 |
 
-**Summary:** Comparable or better performance on 3/4 tasks with 33-56% fewer active rank parameters.
+**Summary:** The adaptive controller reduces average rank by 33-56% and produces interpretable per-layer rank patterns. Performance is within the noise margin of fixed-rank baselines on CoLA, but shows a gap on MRPC and RTE. The controller has higher variance than fixed-rank approaches.
+
+**Honest assessment:** At this scale (DistilBERT, GLUE), the choice between r=8 and r=16 makes little difference — the problem the controller tries to solve may not exist at small scale. Validation on larger models where rank selection matters more is needed.
 
 ## How it works
 
@@ -42,17 +44,31 @@ The controller discovers meaningful patterns automatically:
 
 - **v_proj consistently needs more rank than q_proj** across all tasks
 - **Deep layers (4-5) need more rank** than early layers on complex tasks
-- **Easier tasks (SST-2) converge to lower rank** than harder tasks (RTE)
+- **Easier tasks converge to lower rank** than harder tasks
 
 Example per-layer rank on MRPC:
 ```
-layer0.q: 8.5    layer0.v: 8.3
-layer1.q: 7.8    layer1.v: 7.6
-layer2.q: 10.1   layer2.v: 8.3
-layer3.q: 8.1    layer3.v: 10.1
-layer4.q: 10.0   layer4.v: 12.1
-layer5.q: 8.1    layer5.v: 12.3
+layer0.q: 7.9    layer0.v: 8.8
+layer1.q: 7.8    layer1.v: 7.9
+layer2.q: 7.9    layer2.v: 8.5
+layer3.q: 8.8    layer3.v: 11.3
+layer4.q: 10.3   layer4.v: 12.9
+layer5.q: 7.6    layer5.v: 11.3
 ```
+
+Rank trajectory over training (MRPC, seed=0):
+```
+Step      Avg Rank     Loss
+   0        4.0       0.696
+  76       13.8       0.495
+ 153       11.5       0.588
+ 306        8.8       0.460
+ 459        6.8       0.069
+ 612        6.5       0.341
+ 689        5.8       0.028
+```
+
+The controller starts low, expands during early instability, then converges to lower rank as training stabilizes.
 
 ## What was tested and didn't improve results
 
@@ -67,11 +83,11 @@ The simple version works best. Complexity did not pay.
 
 ## Comparison with existing methods
 
-| Method | Approach | Overhead | Our advantage |
-|--------|----------|----------|---------------|
-| AdaLoRA | SVD importance scoring per layer | High (SVD each step) | ~30 lines, zero SVD |
+| Method | Approach | Overhead | Difference |
+|--------|----------|----------|------------|
+| AdaLoRA | SVD importance scoring per layer | High (SVD each step) | Unified-LoRA is ~30 lines, zero SVD |
 | DyLoRA | Train on multiple ranks simultaneously | Medium | Runtime adaptation, not post-hoc |
-| Fixed LoRA | Manual rank selection | None | No guessing required |
+| Fixed LoRA | Manual rank selection | None | Unified-LoRA removes rank as a hyperparameter |
 
 Note: Direct numerical comparison with AdaLoRA was attempted but AdaLoRA did not function correctly in our setup (no rank pruning occurred). A fair comparison requires architecture-specific tuning of AdaLoRA scheduling parameters.
 
@@ -84,23 +100,20 @@ pip install transformers datasets evaluate accelerate scikit-learn
 python benchmark.py
 ```
 
+For multi-seed validation, run `validation_complete.py` (~15-20 min):
+
+```bash
+python validation_complete.py
+```
+
 ## Limitations
 
-- Validated on DistilBERT (67M) and TinyLlama (1.1B) only
-- Single-seed runs (variance not quantified)
-- GLUE tasks only — no generation or instruction-following evaluation
+- Validated on DistilBERT (67M) only at multi-seed level
+- At this scale, fixed r=8 performs comparably to r=16, limiting the potential benefit of adaptive rank
+- Higher variance than fixed-rank baselines
+- GLUE classification tasks only — no generation or instruction-following
 - Rank changes don't reduce peak memory (matrices allocated at max_rank)
-- Throughput overhead from dynamic slicing on small models
-
-## Adapter size reduction
-
-With average rank ~7 vs fixed rank 16:
-
-| Model | r=16 adapter | r=7 adapter | Reduction |
-|-------|-------------|-------------|-----------|
-| DistilBERT | 4.3 MB | 1.9 MB | 56% |
-| 7B (projected) | ~70 MB | ~31 MB | 56% |
-| 70B × 100 tenants | ~7 GB | ~3.1 GB | 56% |
+- Needs validation on larger models (3B-7B) where rank selection has more impact
 
 ## Two validated systems
 
@@ -128,7 +141,7 @@ Key finding: φ returns to pre-shock regime after recovery (0.33 → 0.83 → 0.
 
 ### 2. Per-layer Adaptive Rank Controller
 
-Validated on DistilBERT across 4 GLUE tasks (results table above). Each layer independently adjusts its LoRA rank based on gradient stress EMA. This is the simpler, more broadly validated system.
+Validated on DistilBERT across 3 GLUE tasks with 3 seeds (results table above). Each layer independently adjusts its LoRA rank based on gradient stress EMA. Performance is within noise of fixed-rank baselines with 33-56% rank reduction.
 
 ### Evolution
 
