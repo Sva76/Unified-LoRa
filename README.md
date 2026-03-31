@@ -1,133 +1,92 @@
 # Unified-LoRA
 
-**Adaptive rank controller for LoRA fine-tuning.**
+**Adaptive per-layer rank controller for LoRA fine-tuning.**
 
-A lightweight per-layer controller that dynamically adjusts LoRA rank during training based on gradient stress, eliminating manual rank selection.
+Automatically adjusts LoRA rank during training based on gradient stress. Eliminates rank as a hyperparameter.
 
-## What it does
+## Quick start
 
-Instead of fixing `rank=8` or `rank=16` and hoping it works, Unified-LoRA adapts the rank of each layer independently during training. Layers under stress get more capacity; stable layers get less. No grid search, no guessing.
+```python
+from unified_lora import inject_lora, get_lora_modules, setup_trainable
+
+# Works with any model
+model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased")
+model = inject_lora(model, target_modules=["q_lin", "v_lin"])
+model = setup_trainable(model)
+
+# Standard training loop — add one line
+for batch in train_loader:
+    loss = model(**batch).loss
+    loss.backward()
+    clip_grad_norm_(model.parameters(), 1.0)
+
+    for m in get_lora_modules(model):
+        m.update_rank()  # ← this is the controller
+
+    optimizer.step()
+    optimizer.zero_grad()
+```
+
+## How it works
+
+Each LoRA adapter tracks an EMA of its gradient norm. When stress increases, rank goes up. When stress decreases, rank goes down. Standard α/r scaling keeps the output magnitude stable across rank changes.
+
+```
+stress = 0.9 * stress + 0.1 * grad_norm
+if stress_trend > threshold → rank += 2
+if stress_trend < -threshold → rank -= 2
+```
+
+~30 lines of code. Zero external dependencies beyond PyTorch.
 
 ## Results (multi-seed, 3 seeds)
 
-Evaluated on 3 GLUE tasks with DistilBERT-base-uncased, 3 epochs, LR=5e-4, α=16.
-Each result is mean ± std over 3 seeds.
+DistilBERT-base-uncased, 3 epochs, LR=5e-4, α=16:
 
-| Task | Metric | r=8 (fixed) | r=16 (fixed) | Unified (adaptive) | Avg Rank |
-|------|--------|-------------|--------------|-------------------|----------|
+| Task | Metric | r=8 (fixed) | r=16 (fixed) | Adaptive | Avg Rank |
+|------|--------|-------------|--------------|----------|----------|
 | MRPC | F1 | **0.885 ± 0.007** | 0.882 ± 0.006 | 0.862 ± 0.025 | 9.1 |
 | CoLA | MCC | 0.474 ± 0.001 | **0.478 ± 0.011** | 0.477 ± 0.021 | 7.0 |
 | RTE | Accuracy | **0.560 ± 0.014** | 0.560 ± 0.018 | 0.543 ± 0.010 | 11.7 |
 
-**Summary:** The adaptive controller reduces average rank by 33-56% and produces interpretable per-layer rank patterns. Performance is within the noise margin of fixed-rank baselines on CoLA, but shows a gap on MRPC and RTE. The controller has higher variance than fixed-rank approaches.
+### What these results show
 
-**Honest assessment:** At this scale (DistilBERT, GLUE), the choice between r=8 and r=16 makes little difference — the problem the controller tries to solve may not exist at small scale. Validation on larger models where rank selection matters more is needed.
+**The controller works mechanically.** It adapts rank, discovers per-layer patterns (v_proj needs more rank than q_proj, deep layers need more rank), and converges to lower rank over training.
 
-## How it works
+**At this scale, it doesn't beat fixed rank.** On DistilBERT/GLUE, r=8 ≈ r=16 — the rank choice barely matters. The controller has higher variance than fixed-rank baselines.
 
-Each LoRA adapter tracks the exponential moving average of its gradient norm. When the gradient stress increases (loss landscape is rough), the controller increases rank. When stress decreases (training is stable), rank is reduced.
-
-```
-For each layer, at each step:
-  1. Compute grad_norm of LoRA parameters
-  2. Update EMA: stress = 0.9 * stress + 0.1 * grad_norm
-  3. If stress trend is increasing → rank += 2
-  4. If stress trend is decreasing → rank -= 2
-  5. Forward pass uses α/r scaling (standard LoRA)
-```
-
-The controller adds ~30 lines of code and zero computational overhead beyond gradient norm computation.
+**The hypothesis:** adaptive rank becomes valuable on larger models (3B-7B+) where the gap between r=8 and r=16 is significant. This has not been tested yet due to compute constraints.
 
 ## Per-layer behavior
 
-The controller discovers meaningful patterns automatically:
+The controller discovers interpretable patterns consistently across seeds:
 
-- **v_proj consistently needs more rank than q_proj** across all tasks
-- **Deep layers (4-5) need more rank** than early layers on complex tasks
-- **Easier tasks converge to lower rank** than harder tasks
-
-Example per-layer rank on MRPC:
 ```
+MRPC per-layer rank:
 layer0.q: 7.9    layer0.v: 8.8
 layer1.q: 7.8    layer1.v: 7.9
 layer2.q: 7.9    layer2.v: 8.5
-layer3.q: 8.8    layer3.v: 11.3
-layer4.q: 10.3   layer4.v: 12.9
+layer3.q: 8.8    layer3.v: 11.3    ← deep v_proj needs more
+layer4.q: 10.3   layer4.v: 12.9    ← deep v_proj needs more
 layer5.q: 7.6    layer5.v: 11.3
 ```
 
-Rank trajectory over training (MRPC, seed=0):
-```
-Step      Avg Rank     Loss
-   0        4.0       0.696
-  76       13.8       0.495
- 153       11.5       0.588
- 306        8.8       0.460
- 459        6.8       0.069
- 612        6.5       0.341
- 689        5.8       0.028
-```
+## What was tested and didn't help
 
-The controller starts low, expands during early instability, then converges to lower rank as training stabilizes.
+- **Fluid dynamics metrics** (shock, vorticity, swirl): too conservative
+- **Budget redistribution** across layers: winner-takes-all problem
+- **Adaptive gradient clipping** via swirl: inconsistent across tasks
+- **Vincolo integration** (LR stability controller): zero shock events detected at this scale — training too stable to trigger
+- **Predictive signals** (trend + acceleration): no improvement over simple EMA
 
-## What was tested and didn't improve results
-
-In the interest of scientific honesty, the following extensions were tested and did **not** outperform the simple Adaptive controller:
-
-- **Fluid dynamics metrics** (shock, vorticity, swirl as stress signal): controller became too conservative, suppressing rank across all tasks
-- **Budget redistribution** (fixed total rank budget shared across layers): "winner takes all" problem — high-stress layers starved low-stress layers
-- **Adaptive gradient clipping** driven by swirl: helped on small tasks (RTE +2.5%), hurt on large tasks (SST-2 -1.7%)
-- **Scaling without α/r**: performance came from implicit norm regulation, not true capacity control
-
-The simple version works best. Complexity did not pay.
-
-## Comparison with existing methods
-
-| Method | Approach | Overhead | Difference |
-|--------|----------|----------|------------|
-| AdaLoRA | SVD importance scoring per layer | High (SVD each step) | Unified-LoRA is ~30 lines, zero SVD |
-| DyLoRA | Train on multiple ranks simultaneously | Medium | Runtime adaptation, not post-hoc |
-| Fixed LoRA | Manual rank selection | None | Unified-LoRA removes rank as a hyperparameter |
-
-Note: Direct numerical comparison with AdaLoRA was attempted but AdaLoRA did not function correctly in our setup (no rank pruning occurred). A fair comparison requires architecture-specific tuning of AdaLoRA scheduling parameters.
-
-## Reproduce
-
-Run `benchmark.py` on Google Colab with a T4 GPU (~30 min):
-
-```bash
-pip install transformers datasets evaluate accelerate scikit-learn
-python benchmark.py
-```
-
-For multi-seed validation, run `validation_complete.py` (~15-20 min):
-
-```bash
-python validation_complete.py
-```
-
-## Limitations
-
-- Validated on DistilBERT (67M) only at multi-seed level
-- At this scale, fixed r=8 performs comparably to r=16, limiting the potential benefit of adaptive rank
-- Higher variance than fixed-rank baselines
-- GLUE classification tasks only — no generation or instruction-following
-- Rank changes don't reduce peak memory (matrices allocated at max_rank)
-- Needs validation on larger models (3B-7B) where rank selection has more impact
+The simplest controller works best. Every added complexity hurt or had no effect.
 
 ## Two validated systems
 
-Unified-LoRA contains two complementary approaches, both validated:
+### 1. FSM Mode Controller φ(t)
 
-### 1. FSM Mode Controller (φ(t))
+Validated on Tinker with Llama-3.2-1B. Switches between Single/Multi/Mirror modes based on training stress:
 
-Validated on Tinker with Llama-3.2-1B. A finite state machine driven by a synaptic stress parameter φ(t) = f(C, E, S) that switches between three operational modes:
-
-- **Mode 0 (Single):** shared adapter, low stress (φ < 0.3)
-- **Mode 1 (Multi):** task-specific adapters, moderate stress (φ < 0.7)
-- **Mode 2 (Mirror):** stability snapshots, high stress (φ ≥ 0.7)
-
-Demonstrated full stress → recovery cycle:
 ```
 [250] Mode=1  φ=0.333  (stable)
       SHOCK @ step 300
@@ -137,19 +96,83 @@ Demonstrated full stress → recovery cycle:
 [700] Mode=1  φ=0.333  (baseline restored)
 ```
 
-Key finding: φ returns to pre-shock regime after recovery (0.33 → 0.83 → 0.33), indicating reversible stress handling.
-
 ### 2. Per-layer Adaptive Rank Controller
 
-Validated on DistilBERT across 3 GLUE tasks with 3 seeds (results table above). Each layer independently adjusts its LoRA rank based on gradient stress EMA. Performance is within noise of fixed-rank baselines with 33-56% rank reduction.
+Validated on DistilBERT across 3 GLUE tasks with 3 seeds (results above).
 
-### Evolution
+## Scaling to larger models
 
-The project progressed from discrete mode switching (FSM) to continuous per-layer rank adaptation. Intermediate explorations included fluid dynamics metrics (shock, vorticity, swirl) and budget redistribution — these were tested rigorously but did not outperform the simple per-layer EMA approach. Details in "What was tested" above.
+**This is the key open question.** The controller needs a setting where rank selection matters.
+
+### Test if rank matters on your model first
+
+```python
+# If these three give very different results, the controller can help.
+# If they're similar, rank doesn't matter and neither will the controller.
+for r in [4, 8, 16]:
+    result = train_with_fixed_rank(model, rank=r)
+    print(f"r={r}: {result}")
+```
+
+### Adapting to different architectures
+
+```python
+# Llama / Mistral / Qwen
+inject_lora(model, target_modules=["q_proj", "v_proj"])
+
+# All attention projections
+inject_lora(model, target_modules=["q_proj", "k_proj", "v_proj", "o_proj"])
+
+# With 4-bit quantization
+model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-3.2-3B",
+    quantization_config=BitsAndBytesConfig(load_in_4bit=True),
+    device_map="auto",
+)
+inject_lora(model, target_modules=["q_proj", "v_proj"], max_r=32)
+```
+
+### What to report
+
+If you test at larger scale, the key numbers are:
+
+1. **Does rank matter?** r=4 vs r=8 vs r=16 performance gap
+2. **Does adaptive match the best fixed rank?** Adaptive vs best-r
+3. **Variance:** mean ± std over ≥3 seeds
+4. **Rank distribution:** per-layer average ranks
+
+## Repository structure
+
+```
+unified_lora.py          # Controller module (drop-in)
+benchmark.py             # DistilBERT/GLUE benchmark
+validation_complete.py   # Multi-seed + ablation
+controller.py            # FSM controller φ(t) (legacy)
+docs/                    # Additional documentation
+notebooks/               # Experiment notebooks
+```
+
+## Reproduce
+
+```bash
+pip install transformers datasets evaluate accelerate scikit-learn
+
+# Single run (~30 min on T4)
+python benchmark.py
+
+# Multi-seed validation (~20 min on T4)
+python validation_complete.py
+```
+
+## Limitations
+
+- At DistilBERT/GLUE scale, fixed rank works equally well
+- Higher variance than fixed-rank baselines
+- Not tested on models > 1.1B at multi-seed level
+- Classification tasks only — no generation evaluation
+- Dynamic rank doesn't reduce peak memory
 
 ## Citation
-
-If you use this work:
 
 ```
 @software{unified_lora_2025,
