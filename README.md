@@ -1,91 +1,54 @@
+
 # Unified-LoRA
 
-**Adaptive per-layer rank controller for LoRA fine-tuning.**
+**An exploration of adaptive LoRA fine-tuning.**
 
-Automatically adjusts LoRA rank during training based on gradient stress. Eliminates rank as a hyperparameter.
+This project investigated two ideas: (1) dynamically adjusting LoRA rank during training, and (2) using an FSM controller for training stability. Both were tested rigorously. Neither produced measurable benefit over simple baselines in multi-seed evaluation.
 
-## Quick start
+This repository documents the exploration honestly, including what worked, what didn't, and why.
 
-```python
-from unified_lora import inject_lora, get_lora_modules, setup_trainable
+## What was built
 
-# Works with any model
-model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased")
-model = inject_lora(model, target_modules=["q_lin", "v_lin"])
-model = setup_trainable(model)
+Two systems:
 
-# Standard training loop — add one line
-for batch in train_loader:
-    loss = model(**batch).loss
-    loss.backward()
-    clip_grad_norm_(model.parameters(), 1.0)
+**Adaptive Rank Controller** — each LoRA layer adjusts its rank during training based on gradient stress (EMA). Layers under stress get more capacity; stable layers get less.
 
-    for m in get_lora_modules(model):
-        m.update_rank()  # ← this is the controller
+**FSM Mode Controller φ(t)** — a finite state machine that monitors training loss, detects instability, and switches between operational modes (Normal → Multi → Mirror) with adaptive learning rate.
 
-    optimizer.step()
-    optimizer.zero_grad()
-```
+## Results
 
-## How it works
+### Adaptive Rank — DistilBERT (67M), 3 GLUE tasks, 3 seeds
 
-Each LoRA adapter tracks an EMA of its gradient norm. When stress increases, rank goes up. When stress decreases, rank goes down. Standard α/r scaling keeps the output magnitude stable across rank changes.
+| Task | r=8 (fixed) | r=16 (fixed) | Adaptive | Avg Rank |
+|------|-------------|--------------|----------|----------|
+| MRPC (F1) | **0.885 ± 0.007** | 0.882 ± 0.006 | 0.862 ± 0.025 | 9.1 |
+| CoLA (MCC) | 0.474 ± 0.001 | **0.478 ± 0.011** | 0.477 ± 0.021 | 7.0 |
+| RTE (Acc) | **0.560 ± 0.014** | 0.560 ± 0.018 | 0.543 ± 0.010 | 11.7 |
 
-```
-stress = 0.9 * stress + 0.1 * grad_norm
-if stress_trend > threshold → rank += 2
-if stress_trend < -threshold → rank -= 2
-```
+**Finding:** At this scale, r=8 ≈ r=16. The rank choice doesn't matter, so the adaptive controller has no problem to solve.
 
-~30 lines of code. Zero external dependencies beyond PyTorch.
+### Adaptive Rank — Qwen2.5-3B (3B, 4-bit), MRPC, 3 seeds, A100
 
-## Results (multi-seed, 3 seeds)
+| Mode | Acc | F1 | Rank |
+|------|-----|-----|------|
+| r=8 | 0.876 ± 0.008 | 0.913 ± 0.004 | 8 |
+| r=16 | 0.875 ± 0.004 | 0.913 ± 0.002 | 16 |
+| r=32 | 0.883 ± 0.012 | 0.918 ± 0.008 | 32 |
+| Adaptive | 0.870 ± 0.014 | 0.911 ± 0.008 | 10.8 |
 
-DistilBERT-base-uncased, 3 epochs, LR=5e-4, α=16:
+**Finding:** Rank doesn't matter at 3B either. Gap between r=8 and r=32 is 0.5%.
 
-| Task | Metric | r=8 (fixed) | r=16 (fixed) | Adaptive | Avg Rank |
-|------|--------|-------------|--------------|----------|----------|
-| MRPC | F1 | **0.885 ± 0.007** | 0.882 ± 0.006 | 0.862 ± 0.025 | 9.1 |
-| CoLA | MCC | 0.474 ± 0.001 | **0.478 ± 0.011** | 0.477 ± 0.021 | 7.0 |
-| RTE | Accuracy | **0.560 ± 0.014** | 0.560 ± 0.018 | 0.543 ± 0.010 | 11.7 |
+### FSM Stability — Qwen2.5-3B + LoRA, MRPC, 3 seeds, A100
 
-### What these results show
+| Mode | F1 | F1 Std | Spikes |
+|------|-----|--------|--------|
+| Baseline (no protection) | **0.916 ± 0.001** | | 330 |
+| FSM φ(t) | 0.907 ± 0.005 | | 306 |
+| Cosine scheduler | 0.898 ± 0.001 | | 335 |
 
-**The controller works mechanically.** It adapts rank, discovers per-layer patterns (v_proj needs more rank than q_proj, deep layers need more rank), and converges to lower rank over training.
+**Finding:** Training instability (loss spikes) doesn't hurt final performance. The FSM reduces spikes slightly but at the cost of -0.9% F1 and higher variance.
 
-**At this scale, it doesn't beat fixed rank.** On DistilBERT/GLUE, r=8 ≈ r=16 — the rank choice barely matters. The controller has higher variance than fixed-rank baselines.
-
-**The hypothesis:** adaptive rank becomes valuable on larger models (3B-7B+) where the gap between r=8 and r=16 is significant. This has not been tested yet due to compute constraints.
-
-## Per-layer behavior
-
-The controller discovers interpretable patterns consistently across seeds:
-
-```
-MRPC per-layer rank:
-layer0.q: 7.9    layer0.v: 8.8
-layer1.q: 7.8    layer1.v: 7.9
-layer2.q: 7.9    layer2.v: 8.5
-layer3.q: 8.8    layer3.v: 11.3    ← deep v_proj needs more
-layer4.q: 10.3   layer4.v: 12.9    ← deep v_proj needs more
-layer5.q: 7.6    layer5.v: 11.3
-```
-
-## What was tested and didn't help
-
-- **Fluid dynamics metrics** (shock, vorticity, swirl): too conservative
-- **Budget redistribution** across layers: winner-takes-all problem
-- **Adaptive gradient clipping** via swirl: inconsistent across tasks
-- **Vincolo integration** (LR stability controller): zero shock events detected at this scale — training too stable to trigger
-- **Predictive signals** (trend + acceleration): no improvement over simple EMA
-
-The simplest controller works best. Every added complexity hurt or had no effect.
-
-## Two validated systems
-
-### 1. FSM Mode Controller φ(t)
-
-Validated on Tinker with Llama-3.2-1B. Switches between Single/Multi/Mirror modes based on training stress:
+### FSM on Tinker — Llama-3.2-1B (single run, manually induced shock)
 
 ```
 [250] Mode=1  φ=0.333  (stable)
@@ -96,88 +59,101 @@ Validated on Tinker with Llama-3.2-1B. Switches between Single/Multi/Mirror mode
 [700] Mode=1  φ=0.333  (baseline restored)
 ```
 
-### 2. Per-layer Adaptive Rank Controller
+**Finding:** The FSM mechanism works — it detects shock and recovers. But this was a single run with induced instability, not a multi-seed validation against alternatives.
 
-Validated on DistilBERT across 3 GLUE tasks with 3 seeds (results above).
+## What was tested and didn't help
 
-## Scaling to larger models
+Tested rigorously and documented honestly:
 
-**This is the key open question.** The controller needs a setting where rank selection matters.
+- **Adaptive rank per-layer** (gradient EMA): rank adapts but doesn't improve results
+- **Fluid dynamics metrics** (shock, vorticity, swirl): too conservative
+- **Budget redistribution** across layers: winner-takes-all problem
+- **Adaptive gradient clipping** via swirl: inconsistent
+- **Vincolo integration** (StabilityController + rank): zero shock events on stable training
+- **Predictive signals** (trend + acceleration): no improvement
+- **FSM φ(t) on natural training**: either no instability to handle, or instability doesn't hurt results
+- **Stress testing** (high LR + label noise): training collapsed before FSM could act
 
-### Test if rank matters on your model first
+## What was learned
+
+1. **LoRA rank doesn't matter on classification tasks** from 67M to 3B. r=8 ≈ r=16 ≈ r=32 on MRPC. This means grid search over rank is wasted compute for these tasks.
+
+2. **Training loss instability doesn't equal result instability.** Loss can spike wildly (0.0004 to 2.6) without affecting final metrics. Protecting against spikes is unnecessary on these tasks.
+
+3. **Simplest baseline wins.** Fixed rank, fixed LR, standard grad clipping outperformed every adaptive method tested.
+
+4. **Single-seed results are misleading.** Several configurations showed positive results on single seeds that disappeared on multi-seed evaluation.
+
+5. **Per-layer rank patterns are real.** v_proj consistently needs more rank than q_proj, deep layers need more rank. These patterns reproduce across seeds even though they don't improve performance.
+
+## Per-layer behavior
+
+The adaptive controller discovers consistent patterns:
+
+```
+MRPC per-layer rank:
+layer0.q: 7.9    layer0.v: 8.8
+layer1.q: 7.8    layer1.v: 7.9
+layer2.q: 7.9    layer2.v: 8.5
+layer3.q: 8.8    layer3.v: 11.3    ← deep v_proj needs more
+layer4.q: 10.3   layer4.v: 12.9
+layer5.q: 7.6    layer5.v: 11.3
+```
+
+## Open questions
+
+- Does rank matter on generation/instruction-following tasks (not classification)?
+- Does rank matter at 7B-70B scale with rank ranges of 8-64?
+- Is there a training regime (specific LR + noise combination) where the FSM provides measurable benefit?
+
+## Quick start
 
 ```python
-# If these three give very different results, the controller can help.
-# If they're similar, rank doesn't matter and neither will the controller.
-for r in [4, 8, 16]:
-    result = train_with_fixed_rank(model, rank=r)
-    print(f"r={r}: {result}")
-```
+from unified_lora import inject_lora, get_lora_modules, setup_trainable
 
-### Adapting to different architectures
+model = inject_lora(model, target_modules=["q_proj", "v_proj"])
+model = setup_trainable(model)
 
-```python
-# Llama / Mistral / Qwen
-inject_lora(model, target_modules=["q_proj", "v_proj"])
-
-# All attention projections
-inject_lora(model, target_modules=["q_proj", "k_proj", "v_proj", "o_proj"])
-
-# With 4-bit quantization
-model = AutoModelForCausalLM.from_pretrained(
-    "meta-llama/Llama-3.2-3B",
-    quantization_config=BitsAndBytesConfig(load_in_4bit=True),
-    device_map="auto",
-)
-inject_lora(model, target_modules=["q_proj", "v_proj"], max_r=32)
-```
-
-### What to report
-
-If you test at larger scale, the key numbers are:
-
-1. **Does rank matter?** r=4 vs r=8 vs r=16 performance gap
-2. **Does adaptive match the best fixed rank?** Adaptive vs best-r
-3. **Variance:** mean ± std over ≥3 seeds
-4. **Rank distribution:** per-layer average ranks
-
-## Repository structure
-
-```
-unified_lora.py          # Controller module (drop-in)
-benchmark.py             # DistilBERT/GLUE benchmark
-validation_complete.py   # Multi-seed + ablation
-controller.py            # FSM controller φ(t) (legacy)
-docs/                    # Additional documentation
-notebooks/               # Experiment notebooks
+# In training loop:
+for m in get_lora_modules(model):
+    m.update_rank()  # adaptive rank (works mechanically, no performance benefit found)
 ```
 
 ## Reproduce
 
 ```bash
-pip install transformers datasets evaluate accelerate scikit-learn
+pip install transformers datasets evaluate accelerate scikit-learn bitsandbytes
 
-# Single run (~30 min on T4)
-python benchmark.py
-
-# Multi-seed validation (~20 min on T4)
+# DistilBERT multi-seed validation (~20 min, T4)
 python validation_complete.py
+
+# Qwen 3B scale test (~40 min, A100)
+python scale_test.py
+
+# Qwen 3B stability test (~40 min, A100)
+python stability_test.py
 ```
 
-## Limitations
+## Repository structure
 
-- At DistilBERT/GLUE scale, fixed rank works equally well
-- Higher variance than fixed-rank baselines
-- Not tested on models > 1.1B at multi-seed level
-- Classification tasks only — no generation evaluation
-- Dynamic rank doesn't reduce peak memory
+```
+unified_lora.py            # Adaptive rank controller (drop-in module)
+benchmark.py               # DistilBERT single-run benchmark
+validation_complete.py     # Multi-seed + ablation (DistilBERT)
+scale_test.py              # Qwen 3B rank test (A100)
+stability_test.py          # FSM vs Baseline vs Cosine (A100)
+controller.py              # FSM φ(t) controller
+Archive/                   # Earlier experimental results
+docs/                      # Additional documentation
+notebooks/                 # Experiment notebooks
+```
 
 ## Citation
 
 ```
 @software{unified_lora_2025,
   author = {Simona Vargiu},
-  title = {Unified-LoRA: Adaptive Rank Controller for LoRA Fine-tuning},
+  title = {Unified-LoRA: An Exploration of Adaptive LoRA Fine-tuning},
   year = {2025},
   url = {https://github.com/Sva76/Unified-LoRa}
 }
