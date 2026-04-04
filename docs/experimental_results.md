@@ -5,7 +5,7 @@
 ### Setup
 
 - **Model**: DistilBERT-base-uncased + NestedLoRALinear (max_rank=16)
-- **Protocol**: MRPC × 60 steps → SST-2 × 60 steps (shock at step 60)
+- **Protocol**: MRPC x 60 steps then SST-2 x 60 steps (shock at step 60)
 - **Seeds**: 0, 1, 2 (same seed = same batch order for baseline and unified)
 - **Baseline**: Same architecture, rank=16 fixed, no controller
 - **Hardware**: Google Colab, T4 GPU
@@ -66,11 +66,11 @@
 
 All three seeds show the same pattern post-shock:
 1. Controller detects the distribution shift (loss spike after task switch)
-2. Descends through orbitals: r16 → r8 → r4
+2. Descends through orbitals: r16 to r8 to r4
 3. Stabilizes at ground state for 10-18 steps
-4. Re-ascends when new task complexity demands capacity: r4 → r8 → r16
+4. Re-ascends when new task complexity demands capacity: r4 to r8 to r16
 
-The baseline stays at r=16 for all 120 steps regardless of the shock. It has no mechanism to detect or respond to the distribution shift.
+The baseline stays at r=16 for all 120 steps regardless of the shock.
 
 
 ## 2. Stable Task — Single Task Parity (Quantitative)
@@ -89,9 +89,9 @@ The baseline stays at r=16 for all 120 steps regardless of the shock. It has no 
 | 0    | 0.806       | 0.808      | +0.002 |
 | 1    | 0.822       | 0.826      | +0.004 |
 | 2    | 0.824       | 0.824      | +0.000 |
-| **Mean** | **0.818 ± 0.008** | **0.820 ± 0.008** | **+0.002** |
+| **Mean** | **0.818 +/- 0.008** | **0.820 +/- 0.008** | **+0.002** |
 
-The controller correctly identifies that no intervention is needed on a stable task and remains at r=16 for nearly all steps. Parity confirmed — the controller never hurts.
+The controller correctly identifies that no intervention is needed on a stable task and remains at r=16 for nearly all steps. Parity confirmed.
 
 
 ## 3. Rank Dynamics under Disturbance (Qualitative — Tinker)
@@ -140,12 +140,12 @@ Only Unified-LoRA exhibits disturbance rejection — a property of closed-loop c
 
 Four versions of the controller were tested with independent adapter matrices per rank (r=4, r=8, r=16 as separate nn.Linear pairs):
 
-| Version        | Mean F1 | Δ vs baseline | Saving | Problem                              |
-|----------------|---------|---------------|--------|--------------------------------------|
-| V1 Homeostatic | 0.850   | +0.002*       | 62%    | No baseline in same run              |
-| V2 State-Aware | 0.812   | -0.036        | 46%    | Cold start on transitions            |
-| V3 State Ctrl  | 0.817   | -0.031        | 47%    | Stuck at r=8 on 2/3 seeds           |
-| V4 Trend-Aware | 0.821   | -0.027        | 14%    | Never activated on 2/3 seeds         |
+| Version        | Mean F1 | Delta vs baseline | Saving | Problem                              |
+|----------------|---------|-------------------|--------|--------------------------------------|
+| V1 Homeostatic | 0.850   | +0.002*           | 62%    | No baseline in same run              |
+| V2 State-Aware | 0.812   | -0.036            | 46%    | Cold start on transitions            |
+| V3 State Ctrl  | 0.817   | -0.031            | 47%    | Stuck at r=8 on 2/3 seeds           |
+| V4 Trend-Aware | 0.821   | -0.027            | 14%    | Never activated on 2/3 seeds         |
 
 *V1 baseline was from a different run, not directly comparable.
 
