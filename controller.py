@@ -1,19 +1,20 @@
 """
-Unified LoRA Controller
-========================
+Unified-LoRA Controller
+======================
 
-Convenience wrapper that re-exports from the two core modules:
-- nested_lora.py          (engine: NestedLoRALinear, inject, set_rank)
-- orbital_controller.py   (intelligence: OrbitalController)
+Convenience wrapper that exposes the full Unified-LoRA stack:
 
-Import from here for quick usage, or from the individual modules
-for finer control.
+- nested_lora.py        → execution engine (LoRA with dynamic rank slicing)
+- orbital_controller.py → control logic (stress-driven rank adaptation)
+
+Use this module for simple integration, or import submodules directly
+for fine-grained control.
 
 Author: Simona Vargiu
 License: Apache 2.0
 """
 
-# Engine
+# ── ENGINE ──────────────────────────────────────────
 from nested_lora import (
     NestedLoRALinear,
     inject_nested_lora,
@@ -22,12 +23,13 @@ from nested_lora import (
     count_params,
 )
 
-# Intelligence
+# ── CONTROLLER ──────────────────────────────────────
 from orbital_controller import (
     OrbitalController,
     setup_unified_lora,
 )
 
+# ── EXPORT ──────────────────────────────────────────
 __all__ = [
     "NestedLoRALinear",
     "inject_nested_lora",
