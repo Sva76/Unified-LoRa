@@ -1,0 +1,99 @@
+!pip install -q transformers datasets torch matplotlib
+
+
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from datasets import load_dataset
+
+
+IMPORT DAL REPO
+
+
+!git clone https://github.com/Sva76/Unified-LoRa
+import sys
+sys.path.append("/content/Unified-LoRa")
+
+
+from nested_lora import inject_nested_lora, set_rank
+from orbital_controller import OrbitalController
+
+
+MODEL
+
+
+model_name = "distilbert-base-uncased"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
+
+
+model = inject_nested_lora(model, max_rank=16)
+ctrl = OrbitalController(warmup=5, stable_window=4)
+
+
+DATA
+
+
+ds = load_dataset("glue", "sst2", split="train[:120]")
+
+
+def tok(x):
+return tokenizer(x["sentence"], truncation=True, padding="max_length", max_length=64)
+
+
+ds = ds.map(tok)
+ds.set_format(type="torch", columns=["input_ids","attention_mask","label"])
+loader = torch.utils.data.DataLoader(ds, batch_size=8)
+
+
+opt = torch.optim.AdamW(model.parameters(), lr=5e-5)
+
+
+TRAIN + TRACK
+
+
+ranks = []
+losses = []
+
+
+for step, batch in enumerate(loader):
+if step > 40:
+break
+
+
+loss = model(
+    input_ids=batch["input_ids"],
+    attention_mask=batch["attention_mask"],
+    labels=batch["label"]
+).loss
+
+# SHOCK
+if 15 < step < 25:
+    loss = loss * 3.0
+
+rank = ctrl.step(loss.item())
+set_rank(model, rank)
+
+ranks.append(rank)
+losses.append(loss.item())
+
+loss.backward()
+opt.step()
+opt.zero_grad()
+
+print(step, "loss:", round(loss.item(),2), "rank:", rank)
+
+
+
+PLOT
+
+
+import matplotlib.pyplot as plt
+
+
+plt.plot(ranks, label="rank")
+plt.plot(losses, label="loss")
+plt.axvspan(15, 25, alpha=0.2)
+plt.legend()
+plt.title("Unified-LoRA Demo")
+plt.show()
+
