@@ -135,6 +135,12 @@ docs/
 notebooks/
 ```
 
+## Demo
+
+See interactive demo: notebooks/unified_lora_demo.ipynb
+
+
+
 ---
 
 ## Author
