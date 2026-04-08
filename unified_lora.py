@@ -1,11 +1,8 @@
 """
-Legacy Adaptive LoRA (Gradient-based)
-====================================
+Legacy Adaptive LoRA (Deprecated)
+================================
 
-Early experimental version of adaptive LoRA using gradient-based rank updates.
-
-This approach adjusts rank per-layer based on gradient norm dynamics.
-However, it suffers from instability and does not provide consistent benefits.
+Early gradient-based adaptive rank prototype.
 
 Replaced by:
 - NestedLoRA (shared orbital architecture)
@@ -13,7 +10,5 @@ Replaced by:
 
 This file is kept for reference only.
 
-Status: deprecated / legacy
+Status: deprecated
 """
-
-
