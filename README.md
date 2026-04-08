@@ -1,191 +1,136 @@
-# Unified-LoRA
-
-**Adaptive LoRA fine-tuning with nested orbital rank control.**
-
-A closed-loop controller that dynamically adjusts LoRA rank during training based on observed stress, using a single adapter with sliced dimensions — no cold start, no capacity loss on transitions.
-
-## Key results
-
-### Stress test: task switch (MRPC → SST-2, DistilBERT, 3 seeds)
-
-|                        | Baseline (r=16 fixed) | Unified (orbital) | Delta    |
-|------------------------|-----------------------|-------------------|----------|
-| SST-2 Acc (new task)   | 0.736                 | 0.740             | **+0.004** |
-| MRPC F1 (retention)    | 0.526                 | 0.515             | -0.011   |
-| Effective rank         | 16.0                  | 13.6              |          |
-| Rank saving            | 0%                    | **15%**           |          |
-
-Under distribution shift, the controller adapts capacity dynamically with 15% rank saving and no performance loss.
-
-### Rank trace under shock (Seed 1)
-
-```
-[  0] r4  r4  r4  r8  r8  r8  r8  r16 r16 r16   ← ground state → stress → ascend
-[ 10] r16 r16 r16 r16 r16 r16 r16 r16 r16 r16   ← MRPC at full capacity
-...
-[ 60] <<<SHOCK  r16 r16 r16 r16 r16 r16 r16 r16  ← task switch to SST-2
-[ 68] r8  r8  r8  r8  r8  r8  r4  r4  r4  r4     ← controller detects shift, descends
-[ 80] r4  r4  r4  r4  r4  r4  r4  r4  r4  r4     ← stable at ground state
-[ 92] r8  r16 r16 r16 r16 r16 r16 r16 r16 r16    ← new task needs capacity, re-ascends
-```
-
-The controller exhibits **disturbance rejection**: detects the shock, descends to ground state, stabilizes, then re-ascends only when the new task demands capacity.
-
-### Stable task (MRPC only, 120 steps, 3 seeds)
-
-|              | Baseline (r=16) | Unified | Delta  |
-|--------------|-----------------|---------|--------|
-| F1 mean      | 0.818           | 0.820   | +0.002 |
-| σ            | 0.008           | 0.008   | =      |
-
-On stable training, the controller recognizes no intervention is needed and stays at r=16. Zero degradation.
-
-## How it works
-
-### Architecture: nested orbitals (r4 ⊂ r8 ⊂ r16)
-
-Unlike standard multi-adapter approaches (separate A/B matrices per rank), Unified-LoRA uses a **single pair** of matrices with rank controlled via slicing:
-
-```python
-# One particle, multiple orbitals
-self.lora_A = Parameter(shape=[max_rank, in_features])   # shared
-self.lora_B = Parameter(shape=[out_features, max_rank])   # shared
-
-# Active rank = slice
-h     = x @ A[:r, :].T      # use first r rows
-delta = h @ B[:, :r].T      # use first r columns
-```
-
-When descending from r=16 to r=4, dimensions 0-3 retain all learned weights. Dimensions 4-15 are paused, not destroyed. When ascending back, they resume where they left off.
-
-**This solves the cold start problem** that caused F1 degradation in earlier versions with separate adapters.
-
-### Controller: orbital trajectory with memory
-
-The controller implements closed-loop rank control:
-
-```
-Stress  → ascend to higher orbital, push delta to stack
-Stable  → pop delta from stack, symmetric return
-Neutral → hold position, don't move
-```
-
-The stress signal φ(t) combines loss deviation from EMA with spike detection:
-
-```
-φ(t) = |loss - EMA(loss)| + 2.0 × max(0, loss - prev_loss)
-```
-
-Thresholds are **adaptive** (μ ± kσ of recent φ history), so the controller auto-calibrates to any model/task scale without manual tuning.
-
-This is not a scheduler, not a rank budget, not a learning rate trick. It is a **trajectory controller** over model capacity.
-
-## Quick start
-
-```python
-from controller import setup_unified_lora, set_rank
-
-# One-call setup
-model, ctrl = setup_unified_lora(model, max_rank=16)
-optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
-
-# Training loop
-for step, batch in enumerate(train_loader):
-    loss = model(**batch).loss
-
-    new_rank = ctrl.step(loss.item())
-    set_rank(model, new_rank)
-
-    loss.backward()
-    optimizer.step()
-    optimizer.zero_grad()
-```
-
-## What works and what doesn't
-
-### Works: distribution shift / noisy training
-
-Under task switch, label noise, or data corruption, the controller adapts rank dynamically. Demonstrated on:
-
-- **Task switch** (MRPC → SST-2): parity + 15% saving, disturbance rejection confirmed
-- **Label noise** (50%, DistilBERT/MRPC, 5 seeds): FSM switching F1=0.622 vs best fixed rank F1=0.439
-
-### Works: black-box training (API / enterprise)
-
-The controller observes only loss trajectory — no access to gradients, internal activations, or optimizer state. Compatible with API-based fine-tuning endpoints where internal signals are not exposed.
-
-### Doesn't help: clean stable training
-
-On standard GLUE tasks without perturbation, rank choice doesn't matter (r=8 ≈ r=16 ≈ r=32 from 67M to 3B parameters). The controller correctly recognizes this and stays at max rank — no harm, but no benefit.
-
-## Experimental evolution
-
-This project tested many approaches. In the interest of scientific honesty:
-
-### Tested and didn't help (clean data)
-
-- **Separate adapters per rank** (V1-V4): cold start on transitions caused 3-6 point F1 loss vs baseline. Each rank switch activated an adapter with independent weights that hadn't benefited from previous training. Solved by nested architecture.
-- **Adaptive rank per-layer** (gradient EMA): no performance benefit over fixed rank
-- **Fluid dynamics metrics** (shock, vorticity, swirl): too conservative as stress signals
-- **Trend-aware hysteresis** with fixed thresholds: controller either never activated or got stuck at intermediate rank
-- **Budget redistribution** across layers: winner-takes-all problem
-
-### What works
-
-- **Nested orbital architecture**: zero cold start, parity with baseline guaranteed
-- **Trajectory controller with orbital memory**: disturbance rejection under task switch
-- **Adaptive thresholds** (μ ± kσ): auto-calibrates across models and tasks
-- **FSM adapter switching under noise**: measurably better performance and lower variance
-
-## Computational overhead
-
-The controller adds O(1) computation per step: one EMA update, one threshold comparison, one stack operation. No SVD, no matrix decomposition. Negligible relative to the training step.
-
-## Control-theoretic framing
-
-| Method                  | Control type    | Rank dynamics         |
-|-------------------------|-----------------|-----------------------|
-| Standard LoRA           | None            | rank = constant       |
-| AdaLoRA                 | Open-loop       | rank = f(step)        |
-| **Unified-LoRA**        | **Closed-loop** | rank = f(stress(t))   |
-
-Unified-LoRA introduces orbit-aware rank transitions: each capacity increase is tracked and reversed only under confirmed stability, preventing premature compression and oscillatory collapse.
-
-## Repository structure
-
-```
-controller.py                          # NestedLoRALinear + OrbitalController
-experiments/
-  stress_test_task_switch.py           # MRPC → SST-2 stress test (key result)
-  stable_task_test.py                  # Single-task parity test
-docs/
-  experimental_results.md              # Detailed results and rank traces
-  architecture.md                      # Nested orbital design
-notebooks/                             # Experiment notebooks
-```
-
-## Open questions
-
-- Does nested orbital control scale to 7B+ models? (Tinker validation in progress)
-- What is the minimum shock magnitude that triggers measurable benefit?
-- Does adaptive LR control (black-box analog) show the same pattern on API platforms?
-
-## Citation
-
-```bibtex
-@software{unified_lora_2025,
-  author = {Simona Vargiu},
-  title = {Unified-LoRA: Adaptive Fine-Tuning with Nested Orbital Rank Control},
-  year = {2025},
-  url = {https://github.com/Sva76/Unified-LoRa}
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Unified LoRA - MRPC Benchmark Example\n",
+    "\n",
+    "This notebook demonstrates Unified LoRA on the GLUE MRPC task.\n",
+    "\n",
+    "**Expected results:**\n",
+    "- Baseline LoRA: F1 ~0.78-0.79\n",
+    "- Unified LoRA: F1 ~0.78-0.79\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "metadata": {},
+   "source": [
+    "!pip install -q transformers datasets peft evaluate scikit-learn accelerate"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "metadata": {},
+   "source": [
+    "import os\n",
+    "os.environ['WANDB_DISABLED'] = 'true'\n",
+    "\n",
+    "import torch\n",
+    "from datasets import load_dataset\n",
+    "from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments\n",
+    "from peft import LoraConfig, get_peft_model\n",
+    "from torch.utils.data import DataLoader\n",
+    "import evaluate\n",
+    "\n",
+    "from controller import UnifiedController\n",
+    "\n",
+    "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
+    "print(device)"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "metadata": {},
+   "source": [
+    "dataset = load_dataset('glue','mrpc')['train'].train_test_split(test_size=0.2, seed=42)\n",
+    "\n",
+    "model_name = 'distilbert-base-uncased'\n",
+    "tokenizer = AutoTokenizer.from_pretrained(model_name)\n",
+    "\n",
+    "def tokenize(ex):\n",
+    "    return tokenizer(ex['sentence1'], ex['sentence2'], truncation=True, padding=True)\n",
+    "\n",
+    "train = dataset['train'].map(tokenize, batched=True).rename_column('label','labels')\n",
+    "test  = dataset['test'].map(tokenize, batched=True).rename_column('label','labels')\n",
+    "\n",
+    "metric = evaluate.combine(['accuracy','f1'])\n",
+    "\n",
+    "def compute_metrics(p):\n",
+    "    logits, labels = p\n",
+    "    preds = torch.argmax(torch.tensor(logits), axis=-1)\n",
+    "    return metric.compute(predictions=preds, references=labels)"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "metadata": {},
+   "source": [
+    "# BASELINE\n",
+    "model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)\n",
+    "model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules=['q_lin','v_lin']))\n",
+    "\n",
+    "trainer = Trainer(\n",
+    " model=model,\n",
+    " train_dataset=train,\n",
+    " eval_dataset=test,\n",
+    " args=TrainingArguments(output_dir='./b', num_train_epochs=3, per_device_train_batch_size=16, fp16=True, report_to=None),\n",
+    " compute_metrics=compute_metrics\n",
+    ")\n",
+    "\n",
+    "trainer.train()\n",
+    "base = trainer.evaluate()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "metadata": {},
+   "source": [
+    "# UNIFIED\n",
+    "ctrl = UnifiedController()\n",
+    "\n",
+    "model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)\n",
+    "model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules=['q_lin','v_lin']))\n",
+    "model.to(device)\n",
+    "\n",
+    "loader = DataLoader(train.remove_columns(['sentence1','sentence2','idx']), batch_size=16, shuffle=True)\n",
+    "opt = torch.optim.AdamW(model.parameters(), lr=3e-5)\n",
+    "\n",
+    "model.train()\n",
+    "\n",
+    "for _ in range(3):\n",
+    " for batch in loader:\n",
+    "  batch = {k:v.to(device) for k,v in batch.items() if k in ['input_ids','attention_mask','labels']}\n",
+    "  out = model(**batch)\n",
+    "  lr = ctrl.update(out.loss.item())\n",
+    "  for g in opt.param_groups: g['lr'] = lr\n",
+    "  out.loss.backward()\n",
+    "  opt.step(); opt.zero_grad()\n",
+    "\n",
+    "model.eval()\n",
+    "trainer = Trainer(model=model, eval_dataset=test, args=TrainingArguments(output_dir='./u', per_device_eval_batch_size=16, fp16=True, report_to=None), compute_metrics=compute_metrics)\n",
+    "uni = trainer.evaluate()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
 }
-```
-
-## Contact
-
-**Simona Vargiu** (Independent Researcher)
-For collaboration inquiries: simona.vargiu.malta@gmail.com
-
-## License
-
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
