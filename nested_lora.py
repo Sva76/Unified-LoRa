@@ -1,130 +1,152 @@
 """
-Nested LoRA — One Particle, Multiple Orbitals
-===============================================
+NestedLoRA — Execution Engine
+==============================
+LoRA adapter where rank is controlled by matrix slicing, not by
+swapping separate adapter pairs.
 
-Single LoRA adapter pair with dynamic rank via slicing.
-r4 ⊂ r8 ⊂ r16 — descending pauses dimensions, ascending resumes them.
-Zero cold start on transitions.
+Architecture:
+    A single (max_rank × d) matrix pair is allocated once.
+    Active rank is a *slice* of that matrix: r4 ⊂ r8 ⊂ r16.
+    Changing rank = changing the slice boundary. Zero re-allocation,
+    zero cold-start, because lower-rank parameters are always a
+    subset of higher-rank ones.
 
-This module is the "engine" — pure architecture, no control logic.
-Pair with OrbitalController for adaptive rank decisions.
+    Forward:  h = x @ W + (x @ A[:, :r] @ B[:r, :]) * (α / r)
 
 Author: Simona Vargiu
 License: Apache 2.0
 """
 
-import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import List
+import math
+from typing import Dict, Optional
 
 
 class NestedLoRALinear(nn.Module):
-    """
-    Single LoRA adapter with dynamic rank via slicing.
+    """Drop-in replacement for nn.Linear with nested-rank LoRA."""
 
-    A single pair of matrices A(max_rank, in) and B(out, max_rank) is shared
-    across all rank levels. The active rank is controlled by slicing:
-
-        r=4  → A[:4, :],  B[:, :4]
-        r=8  → A[:8, :],  B[:, :8]
-        r=16 → A[:16,:],  B[:, :16]
-
-    When descending from r=16 to r=4, dimensions 0-3 retain all learned
-    weights. Dimensions 4-15 are paused (no gradient), not destroyed.
-    When ascending back, they resume exactly where they left off.
-
-    Output is scaled by max_rank/active_rank to maintain consistent
-    magnitude across rank changes (analogous to alpha/r in standard LoRA).
-
-    Args:
-        linear: Original nn.Linear layer to wrap
-        max_rank: Maximum LoRA rank (default: 16)
-
-    Example:
-        >>> layer = NestedLoRALinear(original_linear, max_rank=16)
-        >>> layer.set_rank(4)    # use 4 dimensions
-        >>> out = layer(x)       # forward with r=4
-        >>> layer.set_rank(16)   # expand to full rank
-        >>> out = layer(x)       # forward with r=16, dimensions 0-3 unchanged
-    """
-
-    def __init__(self, linear: nn.Linear, max_rank: int = 16):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        max_rank: int = 16,
+        alpha: float = 16.0,
+        bias: bool = True,
+    ):
         super().__init__()
-        self.linear = linear
+        self.in_features = in_features
+        self.out_features = out_features
         self.max_rank = max_rank
-        self.active_rank = max_rank
+        self.alpha = alpha
+        self.active_rank = max_rank  # start at full capacity
 
-        # Freeze original weights
-        for p in self.linear.parameters():
-            p.requires_grad = False
+        # Frozen pretrained weight
+        self.weight = nn.Parameter(torch.empty(out_features, in_features), requires_grad=False)
+        self.bias_param = nn.Parameter(torch.zeros(out_features)) if bias else None
 
-        # One particle: single A and B
-        self.lora_A = nn.Parameter(torch.empty(max_rank, linear.in_features))
-        self.lora_B = nn.Parameter(torch.zeros(linear.out_features, max_rank))
+        # LoRA matrices — allocated once at max_rank
+        self.lora_A = nn.Parameter(torch.empty(in_features, max_rank))
+        self.lora_B = nn.Parameter(torch.zeros(max_rank, out_features))
 
-        # Standard LoRA init: A = kaiming, B = zeros → initial delta = 0
+        # Kaiming init for A, zero init for B (standard LoRA)
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
 
-    def set_rank(self, r: int):
-        """Set the active orbital. Must be <= max_rank."""
-        self.active_rank = min(r, self.max_rank)
+    @property
+    def scaling(self) -> float:
+        """Standard LoRA scaling: α / active_rank."""
+        return self.alpha / self.active_rank if self.active_rank > 0 else 0.0
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        base = self.linear(x)
-        r = self.active_rank
+        # Base linear
+        h = nn.functional.linear(x, self.weight, self.bias_param)
 
-        h = F.linear(x, self.lora_A[:r, :])
-        delta = F.linear(h, self.lora_B[:, :r])
+        # LoRA delta via nested slicing
+        if self.active_rank > 0:
+            A_slice = self.lora_A[:, : self.active_rank]       # (in, r)
+            B_slice = self.lora_B[: self.active_rank, :]       # (r, out)
+            h = h + (x @ A_slice @ B_slice) * self.scaling
 
-        scale = self.max_rank / r
-        return base + delta * scale
+        return h
+
+    def extra_repr(self) -> str:
+        return (
+            f"in={self.in_features}, out={self.out_features}, "
+            f"max_rank={self.max_rank}, active_rank={self.active_rank}, "
+            f"α={self.alpha}"
+        )
 
 
-def inject_nested_lora(model: nn.Module, max_rank: int = 16) -> nn.Module:
+# ── Injection helpers ───────────────────────────────────────────
+
+
+def inject_nested_lora(
+    model: nn.Module,
+    target_modules: list[str],
+    max_rank: int = 16,
+    alpha: float = 16.0,
+) -> Dict[str, NestedLoRALinear]:
     """
-    Replace attention Linear layers with NestedLoRALinear.
-
-    Targets any nn.Linear whose full name contains "attention".
-    Original weights are frozen; only LoRA parameters are trainable.
+    Replace target Linear layers with NestedLoRALinear.
 
     Args:
-        model: PyTorch model
-        max_rank: Maximum LoRA rank
+        model: The base model (weights will be frozen).
+        target_modules: List of substrings to match layer names
+            (e.g. ["q_proj", "v_proj"]).
+        max_rank: Maximum rank allocated per adapter.
+        alpha: LoRA scaling factor.
 
     Returns:
-        Model with NestedLoRA injected
+        Dictionary mapping layer name → NestedLoRALinear module.
     """
+    adapters: Dict[str, NestedLoRALinear] = {}
+
     for name, module in list(model.named_modules()):
-        if isinstance(module, nn.Linear) and "attention" in name:
-            parent = model
-            *path, last = name.split(".")
-            for p in path:
-                parent = getattr(parent, p)
-            setattr(parent, last, NestedLoRALinear(module, max_rank))
-    return model
+        if not isinstance(module, nn.Linear):
+            continue
+        if not any(t in name for t in target_modules):
+            continue
+
+        nested = NestedLoRALinear(
+            in_features=module.in_features,
+            out_features=module.out_features,
+            max_rank=max_rank,
+            alpha=alpha,
+            bias=module.bias is not None,
+        )
+
+        # Copy frozen weights
+        nested.weight.data.copy_(module.weight.data)
+        if module.bias is not None and nested.bias_param is not None:
+            nested.bias_param.data.copy_(module.bias.data)
+
+        # Replace in model
+        parent_name, attr_name = name.rsplit(".", 1) if "." in name else ("", name)
+        parent = model.get_submodule(parent_name) if parent_name else model
+        setattr(parent, attr_name, nested)
+        adapters[name] = nested
+
+    return adapters
 
 
-def set_rank(model: nn.Module, r: int):
-    """Set active rank on all NestedLoRALinear modules in the model."""
-    for m in model.modules():
-        if isinstance(m, NestedLoRALinear):
-            m.set_rank(r)
+def set_rank(adapters: Dict[str, NestedLoRALinear], rank: int) -> None:
+    """Set active rank globally across all adapters."""
+    for adapter in adapters.values():
+        adapter.active_rank = min(rank, adapter.max_rank)
 
 
-def get_lora_params(model: nn.Module) -> List[nn.Parameter]:
-    """Get all LoRA parameters (for optimizer setup)."""
-    params = []
-    for m in model.modules():
-        if isinstance(m, NestedLoRALinear):
-            params.extend([m.lora_A, m.lora_B])
-    return params
+def get_lora_params(adapters: Dict[str, NestedLoRALinear]):
+    """Yield only the trainable LoRA parameters."""
+    for adapter in adapters.values():
+        yield adapter.lora_A
+        yield adapter.lora_B
 
 
-def count_params(model: nn.Module) -> dict:
-    """Count total, trainable, and LoRA parameters."""
-    total = sum(p.numel() for p in model.parameters())
-    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    lora = sum(p.numel() for p in get_lora_params(model))
-    return {"total": total, "trainable": trainable, "lora": lora}
+def count_params(adapters: Dict[str, NestedLoRALinear], active_only: bool = True) -> int:
+    """Count LoRA parameters (active slice or full allocation)."""
+    total = 0
+    for adapter in adapters.values():
+        r = adapter.active_rank if active_only else adapter.max_rank
+        total += adapter.in_features * r  # A
+        total += r * adapter.out_features  # B
+    return total
