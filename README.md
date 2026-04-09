@@ -241,7 +241,11 @@ Closed-loop
 f(stress)
 
 
+Unified-LoRA actively controls weight updates (ΔW), preventing unstable growth during training.
 
+In the demo, baseline weights diverge, while Unified-LoRA keeps them bounded.
+
+This behavior enables stable training under aggressive conditions.
 
 
 📁 Structure
