@@ -1,7 +1,7 @@
 """
 Unified-LoRA GLUE Benchmark
 ============================
-Runs adaptive vs fixed-rank LoRA on GLUE tasks with DistilBERT.
+Runs adaptive FSM controller vs fixed-rank LoRA on GLUE tasks.
 
 Usage:
     python benchmark.py                      # All tasks
@@ -29,8 +29,6 @@ from nested_lora import inject_nested_lora, get_lora_params, count_params
 from orbital_controller import OrbitalController
 
 
-# ── Config ──────────────────────────────────────────────────────
-
 TASK_CONFIG = {
     "mrpc":  {"metric": "f1",       "num_labels": 2},
     "sst2":  {"metric": "accuracy", "num_labels": 2},
@@ -55,7 +53,6 @@ def set_seed(seed):
 
 
 def inject_noise(dataset, noise_rate: float, num_labels: int):
-    """Flip labels randomly at the given rate."""
     if noise_rate <= 0:
         return dataset
 
@@ -68,25 +65,21 @@ def inject_noise(dataset, noise_rate: float, num_labels: int):
 
 
 def run_task(task: str, adaptive: bool, noise_rate: float = 0.0):
-    """Run a single GLUE task. Returns (metric_value, avg_rank)."""
     set_seed(SEED)
     config = TASK_CONFIG[task]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Load model + tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_NAME, num_labels=config["num_labels"]
     ).to(device)
 
-    # Freeze base model
     for p in model.parameters():
         p.requires_grad = False
 
-    # Inject NestedLoRA
     adapters = inject_nested_lora(
         model,
-        target_modules=["q_lin", "v_lin"],  # DistilBERT naming
+        target_modules=["q_lin", "v_lin"],
         max_rank=MAX_RANK,
         alpha=ALPHA,
     )
@@ -96,28 +89,24 @@ def run_task(task: str, adaptive: bool, noise_rate: float = 0.0):
         controller = OrbitalController(
             adapters,
             rank_levels=RANK_LEVELS,
-            ema_alpha=0.1,
-            threshold_k=1.5,
+            phi_low=0.3,
+            phi_high=0.7,
+            hysteresis_steps=30,
             eval_interval=10,
             warmup_steps=50,
         )
     else:
-        # Fixed rank at MAX_RANK
         for adapter in adapters.values():
             adapter.active_rank = MAX_RANK
 
-    # Load data
+    # Data
     glue_key = "sst2" if task == "sst2" else task
     dataset = load_dataset("glue", glue_key)
 
     if task in ("mrpc", "rte"):
         text_keys = ("sentence1", "sentence2")
-    elif task == "sst2":
-        text_keys = ("sentence",)
-    elif task == "cola":
-        text_keys = ("sentence",)
     else:
-        text_keys = ("sentence1", "sentence2")
+        text_keys = ("sentence",)
 
     def tokenize(batch):
         if len(text_keys) == 2:
@@ -130,20 +119,19 @@ def run_task(task: str, adaptive: bool, noise_rate: float = 0.0):
     train_ds = inject_noise(train_ds, noise_rate, config["num_labels"])
     train_ds.set_format("torch", columns=["input_ids", "attention_mask", "label"])
 
-    val_split = "validation_matched" if task == "mnli" else "validation"
-    val_ds = dataset[val_split].map(tokenize, batched=True)
+    val_ds = dataset["validation"].map(tokenize, batched=True)
     val_ds.set_format("torch", columns=["input_ids", "attention_mask", "label"])
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE)
 
-    # Optimizer
     optimizer = torch.optim.AdamW(get_lora_params(adapters), lr=LR)
     total_steps = len(train_loader) * EPOCHS
     scheduler = get_linear_schedule_with_warmup(optimizer, 0, total_steps)
 
     # Train
     model.train()
+    transition_count = 0
     for epoch in range(EPOCHS):
         for batch in train_loader:
             batch = {k: v.to(device) for k, v in batch.items()}
@@ -152,10 +140,18 @@ def run_task(task: str, adaptive: bool, noise_rate: float = 0.0):
                 attention_mask=batch["attention_mask"],
                 labels=batch["label"],
             )
-            outputs.loss.backward()
+            loss = outputs.loss
+            loss.backward()
 
             if controller is not None:
-                controller.step()
+                transitions = controller.step(loss=loss.item())
+                transition_count += len(transitions)
+                for t in transitions:
+                    print(f"  [{t.step}] {t.layer_name}: "
+                          f"{t.old_mode.name}→{t.new_mode.name} "
+                          f"φ={t.phi:.3f} rank {t.old_rank}→{t.new_rank}"
+                          f"{' 📸' if t.snapshot_saved else ''}"
+                          f"{' ↩️' if t.snapshot_restored else ''}")
 
             optimizer.step()
             scheduler.step()
@@ -178,14 +174,17 @@ def run_task(task: str, adaptive: bool, noise_rate: float = 0.0):
     metric_val = results[config["metric"]]
     avg_rank = controller.avg_rank() if controller else MAX_RANK
 
+    if controller:
+        print(f"  Mode distribution: {controller.mode_distribution()}")
+        print(f"  Total transitions: {transition_count}")
+
     return metric_val, avg_rank
 
 
 def main():
     parser = argparse.ArgumentParser(description="Unified-LoRA GLUE Benchmark")
     parser.add_argument("--tasks", nargs="+", default=list(TASK_CONFIG.keys()))
-    parser.add_argument("--noise", type=float, default=0.0,
-                        help="Label noise rate (0.0–1.0)")
+    parser.add_argument("--noise", type=float, default=0.0)
     args = parser.parse_args()
 
     print(f"{'Task':<8} {'Mode':<10} {'Metric':>8} {'Avg Rank':>10}")
@@ -196,11 +195,9 @@ def main():
             print(f"Unknown task: {task}")
             continue
 
-        # Baseline
         baseline_val, _ = run_task(task, adaptive=False, noise_rate=args.noise)
         print(f"{task:<8} {'fixed':10} {baseline_val:8.3f} {MAX_RANK:10.1f}")
 
-        # Adaptive
         adaptive_val, avg_rank = run_task(task, adaptive=True, noise_rate=args.noise)
         print(f"{task:<8} {'adaptive':10} {adaptive_val:8.3f} {avg_rank:10.1f}")
 
