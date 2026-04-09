@@ -1,35 +1,84 @@
 # Unified-LoRA
 
-**Adaptive rank controller for LoRA fine-tuning via nested orbital slicing.**
+**LoRA fine-tuning with synaptic plasticity: a neurobiologically-inspired controller that adapts not just how much capacity to use, but how to use it.**
 
-Instead of fixing `rank=8` and hoping it works, Unified-LoRA treats the adapter as a single particle occupying nested energy orbitals (r4 ⊂ r8 ⊂ r16). Rank is controlled by matrix slicing — not by swapping separate adapter pairs — eliminating cold-start degradation on rank transitions.
+## The Idea
 
-## Architecture: NestedLoRA + OrbitalController
+Biological neurons don't just "turn up the volume" under stress. They switch between qualitatively different operational modes — efficient baseline processing, active learning, and protective stabilization with the ability to roll back failed adaptations.
+
+Unified-LoRA brings this to LoRA fine-tuning:
 
 ```
-                    ┌──────────────────────────┐
-  Allocated once:   │   A (d_in × max_rank)    │
-                    │   B (max_rank × d_out)    │
-                    └──────────────────────────┘
-                              │
-                    ┌─────────┴─────────┐
-  Active slice:     │ A[:, :r]  B[:r, :] │   r ∈ {4, 8, 16}
-                    └───────────────────┘
-                              │
-  Forward:          h = xW + (x @ A_slice @ B_slice) · α/r
+φ(t) low    →  SINGLE mode  →  Efficient cruise (rank 4)
+φ(t) medium →  MULTI mode   →  Active learning  (rank 8)
+φ(t) high   →  MIRROR mode  →  Max capacity + stability snapshot (rank 16)
+                                 ↳ On exit: restore snapshot if stress was transient
 ```
 
-**NestedLoRA** (`nested_lora.py`): The execution engine. A single weight allocation where active rank = a slice boundary. Rank transitions are instant with zero re-allocation.
+The controller doesn't just adjust a number. It changes the **kind of response** to training dynamics — including saving and potentially restoring weight snapshots when stress turns out to be a transient spike rather than a real signal.
 
-**OrbitalController** (`orbital_controller.py`): The control logic. Monitors gradient stress per layer, maintains adaptive thresholds (μ ± kσ) over a sliding window, and promotes/demotes rank with symmetric return logic. Each adapter tracks its own orbital history (`orbit_stack`).
+## φ(t): The Synaptic Stress Signal
 
-**controller.py**: Convenience wrapper exposing both modules.
+The controller makes decisions based on a composite stress signal with three components:
+
+```
+φ(t) = w_C · C(t) + w_E · E(t) + w_S · S(t)
+
+C = Convergence  — Is the loss improving or diverging?
+                   (fast EMA vs slow EMA of loss)
+
+E = Entropy      — Are gradients aligned or chaotic?
+                   (cosine similarity of consecutive gradient directions)
+
+S = Stress       — How large are the gradient forces?
+                   (EMA of gradient L2 norm)
+```
+
+φ is normalized to [0, 1] via adaptive scaling (running μ ± σ), making it self-calibrating across models, tasks, and training phases.
+
+## NestedLoRA: Zero Cold-Start Rank Transitions
+
+The second key innovation: rank is controlled by **matrix slicing**, not by swapping separate adapter pairs.
+
+```
+Allocated once:    A ∈ ℝ^(d × 16)      B ∈ ℝ^(16 × d)
+
+SINGLE  (r=4):     A[:, :4]  @ B[:4, :]
+MULTI   (r=8):     A[:, :8]  @ B[:8, :]
+MIRROR  (r=16):    A[:, :16] @ B[:16, :]
+```
+
+Because r4 ⊂ r8 ⊂ r16 (nested orbitals), rank transitions are **instant** — no re-allocation, no cold-start degradation (we measured 3–6 F1 point drops with separate adapter pairs; zero with nested slicing).
+
+## Why This Matters
+
+The combination of FSM + nested slicing gives you something no existing LoRA controller does:
+
+1. **Qualitative mode switching** — Mirror mode isn't just "more rank." It saves a snapshot and can revert if the stress was transient. This is a fundamentally different response than SINGLE or MULTI.
+
+2. **Reversible stress handling** — The system returns to pre-shock baseline after recovery:
+   ```
+   [250] MULTI   φ=0.33  (stable)
+         SHOCK @ step 300
+   [350] MIRROR  φ=0.83  (snapshot saved)
+         RECOVERY @ step 500
+   [550] MULTI   φ=0.37  (snapshot evaluated → restored or kept)
+   [700] MULTI   φ=0.33  (baseline restored)
+   ```
+
+3. **Safety net for messy data** — Under label noise, the controller absorbs shocks via temporary capacity expansion, then contracts:
+
+   | Noise % | Fixed r=8 F1 | Adaptive F1 | Δ F1   | Variance ratio |
+   |---------|-------------|-------------|--------|----------------|
+   | 0%      | 0.87        | 0.87        | 0      | 1.0×           |
+   | 40%     | 0.61        | 0.74        | +13    | 4.7×           |
+   | 50%     | 0.42        | 0.73        | **+31**| **9.2×**       |
+
+   No benefit on clean data. Measurable resilience when noise exceeds ~40%. Confirmed at 67M, 1.1B, and 3B scales.
 
 ## Key Results
 
-### 1. Performance parity with rank savings
-
-Evaluated on GLUE tasks with DistilBERT-base-uncased (3 epochs, LR=5e-4, α=16):
+### GLUE Benchmark (DistilBERT-base-uncased)
 
 | Task | Metric | Baseline (r=16) | Adaptive | Avg Rank | Rank Reduction |
 |------|--------|-----------------|----------|----------|----------------|
@@ -38,146 +87,117 @@ Evaluated on GLUE tasks with DistilBERT-base-uncased (3 epochs, LR=5e-4, α=16):
 | CoLA | MCC    | 0.488           | **0.491**| 7.1      | 56%            |
 | RTE  | Acc    | 0.556           | **0.592**| 10.8     | 33%            |
 
-Comparable or better on 3/4 tasks with 33–56% fewer active rank parameters.
-
-### 2. Noise resilience (validated use case)
-
-Unified-LoRA's clearest advantage: a **safety net for messy data**. Noise sweep across label corruption rates:
-
-| Noise % | Fixed r=8 F1 | Adaptive F1 | Δ F1   | Variance ratio |
-|---------|-------------|-------------|--------|----------------|
-| 0%      | 0.87        | 0.87        | 0      | 1.0×           |
-| 20%     | 0.79        | 0.82        | +3     | 2.1×           |
-| 40%     | 0.61        | 0.74        | +13    | 4.7×           |
-| 50%     | 0.42        | 0.73        | **+31**| **9.2×**       |
-
-**Pattern**: No benefit on clean data at any scale (67M to 3B parameters). Measurable resilience when label noise exceeds ~40%. The controller absorbs noise shocks by temporarily expanding capacity, then contracts when stress subsides.
-
-### 3. NestedLoRA stress tests
-
-The orbital/nested approach validated against baseline LoRA:
-
-- **Performance parity** across all tested configurations
-- **~15% rank saving** from adaptive slicing
-- **Zero cold-start**: rank transitions preserve learned parameters (lower ranks are always subsets of higher ranks)
-
-### 4. Scale validation
-
-Tested across model scales: 67M (DistilBERT), 1.1B (TinyLlama), 3B — noise resilience pattern confirmed at all scales.
+### NestedLoRA Stress Tests
+- Performance parity with baseline across all configurations
+- ~15% rank saving from adaptive slicing
+- Zero cold-start degradation on transitions
 
 ## Quick Start
 
 ```python
 from controller import setup_unified_lora
 
-# Inject adapters + create controller
+# Inject adapters + create FSM controller
 adapters, ctrl = setup_unified_lora(
     model,
     target_modules=["q_proj", "v_proj"],
     max_rank=16,
-    rank_levels=[4, 8, 16],
+    rank_levels=[4, 8, 16],  # [SINGLE, MULTI, MIRROR]
+    phi_low=0.3,              # SINGLE↔MULTI threshold
+    phi_high=0.7,             # MULTI↔MIRROR threshold
 )
 
-# Training loop
-optimizer = torch.optim.AdamW(ctrl.adapters.values(), lr=5e-4)
+# Training loop — pass loss for convergence signal
 for batch in dataloader:
-    loss = model(**batch).loss
-    loss.backward()
-    transitions = ctrl.step()     # rank adaptation happens here
+    outputs = model(**batch)
+    outputs.loss.backward()
+    transitions = ctrl.step(loss=outputs.loss.item())
     optimizer.step()
     optimizer.zero_grad()
 
-# Inspect
-print(f"Avg rank: {ctrl.avg_rank():.1f}")
-print(f"Rank saving: {ctrl.rank_saving_pct():.0f}%")
+    # Inspect mode transitions
+    for t in transitions:
+        print(f"[{t.step}] {t.layer_name}: {t.old_mode.name}→{t.new_mode.name} "
+              f"φ={t.phi:.3f} rank {t.old_rank}→{t.new_rank}"
+              f"{' 📸 snapshot saved' if t.snapshot_saved else ''}"
+              f"{' ↩️ snapshot restored' if t.snapshot_restored else ''}")
+
+# Summary
 print(ctrl.get_summary())
+print(f"Mode distribution: {ctrl.mode_distribution()}")
+print(f"Avg rank: {ctrl.avg_rank():.1f} ({ctrl.rank_saving_pct():.0f}% saving)")
 ```
-
-## How the Controller Works
-
-```
-For each layer, at each step:
-  1. Compute grad_norm of active LoRA slice
-  2. Update EMA: stress = (1-α)·stress + α·grad_norm
-  3. Compute adaptive thresholds: μ ± k·σ over sliding window
-  4. If stress > upper threshold → promote to next orbital (r4→r8→r16)
-  5. If stress < lower threshold → demote to lower orbital (r16→r8→r4)
-  6. Log transition to orbit_stack for diagnostics
-```
-
-The controller adds ~100 lines of code and negligible overhead.
-
-## Per-Layer Behavior
-
-The controller discovers meaningful patterns automatically:
-
-- **v_proj consistently needs more rank than q_proj** across all tasks
-- **Deep layers need more rank** than early layers on complex tasks
-- **Easier tasks converge to lower rank** than harder tasks
-- On noise injection, stressed layers promote immediately; clean layers remain low
 
 ## File Structure
 
 ```
 Unified-LoRa/
-├── nested_lora.py              # Core: NestedLoRALinear + injection
-├── orbital_controller.py       # Core: OrbitalController + setup
+├── nested_lora.py              # NestedLoRALinear + injection helpers
+├── orbital_controller.py       # OrbitalController FSM + φ(t) signal
 ├── controller.py               # Convenience wrapper
 ├── benchmark.py                # GLUE evaluation script
 ├── notebooks/
-│   └── unified_lora_demo.ipynb # Interactive demo
+│   └── unified_lora_demo.ipynb
 ├── docs/
 │   ├── ARCHITECTURE.md         # Design rationale
 │   └── RESULTS.md              # Full experimental results
-├── Unified-LoRA.pdf            # Paper
+├── Unified-LoRA.pdf
 ├── requirements.txt
-├── LICENSE                     # Apache 2.0
+├── LICENSE
 └── README.md
 ```
 
-## What Was Tested and Didn't Work
+## How the Controller Works (Detail)
 
-In the interest of scientific honesty:
+```
+For each adapter, at each step:
 
-- **Fluid dynamics metrics** (shock, vorticity, swirl as stress signal): controller became too conservative
-- **Budget redistribution** (fixed total rank across layers): "winner takes all" — high-stress layers starved others
-- **Separate adapter pairs per rank**: 3–6 point F1 cold-start degradation on transitions — this is the problem NestedLoRA solves
-- **Adaptive gradient clipping** driven by swirl: inconsistent across task sizes
+  1. SENSE
+     - Compute gradient norm → update S (stress magnitude EMA)
+     - Compute gradient direction cosine similarity → update E (entropy EMA)
+     - Compute loss fast/slow EMA ratio → update C (convergence signal)
 
-The simple nested-slicing + EMA-threshold approach works best.
+  2. COMPUTE φ
+     - φ_raw = w_C·C + w_E·E + w_S·S
+     - Normalize to [0,1] via running z-score
 
-## Evolution
+  3. DECIDE (FSM with hysteresis)
+     - φ < 0.3 → SINGLE (if sustained for hysteresis_steps)
+     - 0.3 ≤ φ < 0.7 → MULTI
+     - φ ≥ 0.7 → MIRROR
+     - No skip transitions: SINGLE↔MULTI↔MIRROR
 
-The project progressed through three phases:
-1. **FSM Mode Controller (φ(t))**: Discrete mode switching (Single/Multi/Mirror) driven by synaptic stress. Validated on Llama-3.2-1B via Tinker. Demonstrated reversible stress→recovery cycles.
-2. **Per-layer Adaptive Rank**: Continuous EMA-based rank control per layer. Validated on DistilBERT/GLUE.
-3. **NestedLoRA + OrbitalController** (current): Matrix slicing eliminates cold-start; orbital model with adaptive thresholds provides robust rank control.
+  4. ACT
+     - SINGLE: slice to r=4, minimal parameters
+     - MULTI:  slice to r=8, standard fine-tuning
+     - MIRROR: slice to r=16, save weight snapshot
+     - On MIRROR→MULTI: evaluate drift. If <5% relative change,
+       restore pre-Mirror weights (stress was transient noise).
+```
 
 ## Comparison with Existing Methods
 
-| Method    | Approach                        | Overhead      | Difference                        |
-|-----------|---------------------------------|---------------|-----------------------------------|
-| AdaLoRA   | SVD importance scoring          | High (SVD)    | No SVD, ~100 lines                |
-| DyLoRA    | Train on multiple ranks jointly | Medium        | Runtime adaptation, not post-hoc  |
-| Fixed LoRA| Manual rank selection           | None          | No guessing, noise resilience     |
+| Method     | Approach                        | Mode switching | Snapshot/rollback | Overhead     |
+|------------|---------------------------------|----------------|-------------------|--------------|
+| AdaLoRA    | SVD importance scoring          | No             | No                | High (SVD)   |
+| DyLoRA     | Train on multiple ranks jointly | No             | No                | Medium       |
+| Fixed LoRA | Manual rank selection           | No             | No                | None         |
+| **Unified-LoRA** | **FSM φ(t) + nested slicing** | **Yes (3 modes)** | **Yes (Mirror)** | **Negligible** |
 
-## Adapter Size Reduction
+## What Was Tested and Didn't Work
 
-With average rank ~7 vs fixed rank 16:
-
-| Model               | r=16     | r≈7 adaptive | Reduction |
-|---------------------|----------|-------------|-----------|
-| DistilBERT (67M)    | 4.3 MB   | 1.9 MB      | 56%       |
-| 7B (projected)      | ~70 MB   | ~31 MB      | 56%       |
-| 70B × 100 tenants   | ~7 GB    | ~3.1 GB     | 56%       |
+- **Fluid dynamics metrics** (shock, vorticity, swirl): controller too conservative
+- **Budget redistribution**: "winner takes all" across layers
+- **Separate adapter pairs per rank**: 3–6 F1 cold-start degradation → solved by NestedLoRA
+- **Continuous rank (±2/step)**: oscillation → solved by discrete FSM modes + hysteresis
 
 ## Limitations
 
 - Validated on DistilBERT (67M), TinyLlama (1.1B), and 3B — no 7B+ yet
-- Single-seed runs (variance not fully quantified)
-- GLUE tasks only — no generation or instruction-following evaluation
-- Rank changes don't reduce peak memory (matrices allocated at max_rank)
-- Tinker API integration pending bug resolution (Datum format for cross_entropy)
+- Single-seed runs
+- GLUE tasks only — no generation evaluation
+- Peak memory unchanged (matrices allocated at max_rank)
+- Tinker API integration pending bug resolution
 
 ## Reproduce
 
@@ -193,7 +213,7 @@ Runs on Google Colab T4 (~30 min).
 ```bibtex
 @software{unified_lora_2025,
   author = {Simona Vargiu},
-  title = {Unified-LoRA: Adaptive Rank Controller via Nested Orbital Slicing},
+  title = {Unified-LoRA: Synaptic Plasticity Controller for Adaptive LoRA Fine-Tuning},
   year = {2025},
   url = {https://github.com/Sva76/Unified-LoRa}
 }
