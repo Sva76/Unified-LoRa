@@ -1,291 +1,296 @@
 """
-Orbital Controller — Trajectory Control with Memory
-=====================================================
+OrbitalController — Stress-Driven Rank Adaptation
+===================================================
+Controls NestedLoRA rank using a physics-inspired orbital model.
 
-Closed-loop rank controller that adapts model capacity based on
-observed training stress. Works with any rank-adjustable system
-(NestedLoRA, adaptive LR, or API-based training).
+Core idea:
+    The adapter occupies nested "energy orbitals" (r4 ⊂ r8 ⊂ r16).
+    Gradient stress determines promotion/demotion between orbitals.
+    Transitions are governed by adaptive thresholds (μ ± kσ) with
+    hysteresis, preventing oscillation.
 
-This module is the "intelligence" — pure control logic, no model code.
-Pair with NestedLoRA for the complete Unified-LoRA system.
+Key features:
+    - orbit_stack: history of orbital transitions for diagnostics
+    - Adaptive thresholds: mean ± k*std of recent stress window
+    - Symmetric return logic: promotes and demotes with equal criteria
+    - Per-layer independence: each adapter has its own stress profile
 
 Author: Simona Vargiu
 License: Apache 2.0
 """
 
-import numpy as np
-from typing import Dict, List, Optional
+import torch
+import torch.nn as nn
+import math
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
+
+from nested_lora import NestedLoRALinear
+
+
+# ── Data structures ─────────────────────────────────────────────
+
+
+@dataclass
+class OrbitalState:
+    """Per-adapter orbital tracking."""
+    current_rank: int
+    stress_ema: float = 0.0
+    stress_history: deque = field(default_factory=lambda: deque(maxlen=100))
+    orbit_stack: list = field(default_factory=list)  # [(step, rank, direction)]
+
+
+@dataclass
+class OrbitalTransition:
+    """Record of a single orbital change."""
+    step: int
+    layer_name: str
+    old_rank: int
+    new_rank: int
+    stress: float
+    threshold: float
+    direction: str  # "promote" or "demote"
+
+
+# ── Controller ──────────────────────────────────────────────────
 
 
 class OrbitalController:
     """
-    Closed-loop trajectory controller for dynamic capacity adaptation.
-
-    Unlike threshold-based controllers that map stress to rank statically,
-    this implements orbital dynamics with memory:
-
-        Ascend:  stress detected  → jump to higher orbital, push delta
-        Hold:    oscillating      → stay, don't move
-        Descend: confirmed stable → pop delta, symmetric return
-
-    Each capacity increase is tracked on a stack and reversed only under
-    confirmed stability. This prevents premature compression (returning
-    too early) and oscillatory collapse (bouncing between ranks).
-
-    The stress signal and thresholds are adaptive — they auto-calibrate
-    to any model/task/loss scale without manual tuning.
+    Drives rank adaptation across all NestedLoRA adapters.
 
     Args:
-        ranks: Available capacity levels (default: [4, 8, 16])
-        warmup: Steps at max capacity to build EMA baseline
-        stable_window: Consecutive stable steps required for descent
-
-    Example:
-        >>> from nested_lora import inject_nested_lora, set_rank
-        >>> from orbital_controller import OrbitalController
-        >>>
-        >>> model = inject_nested_lora(model, max_rank=16)
-        >>> ctrl = OrbitalController()
-        >>>
-        >>> for step, batch in enumerate(loader):
-        ...     loss = model(**batch).loss
-        ...     new_rank = ctrl.step(loss.item())
-        ...     set_rank(model, new_rank)
-        ...     loss.backward()
-        ...     optimizer.step()
+        adapters: Dict of name → NestedLoRALinear (from inject_nested_lora).
+        rank_levels: Allowed rank values, ascending (e.g. [4, 8, 16]).
+        ema_alpha: Smoothing factor for stress EMA (0 < α ≤ 1).
+        threshold_k: Number of std deviations for promote/demote thresholds.
+        window_size: Number of recent stress values for adaptive thresholds.
+        eval_interval: Steps between rank evaluations.
+        warmup_steps: Steps before any rank changes are allowed.
     """
 
     def __init__(
         self,
-        ranks: Optional[List[int]] = None,
-        warmup: int = 10,
-        stable_window: int = 6,
+        adapters: Dict[str, NestedLoRALinear],
+        rank_levels: List[int] = None,
+        ema_alpha: float = 0.1,
+        threshold_k: float = 1.5,
+        window_size: int = 50,
+        eval_interval: int = 10,
+        warmup_steps: int = 50,
     ):
-        self.RANKS = ranks or [4, 8, 16]
-        self.warmup = warmup
-        self.stable_window = stable_window
-        self.reset()
+        self.adapters = adapters
+        self.rank_levels = rank_levels or [4, 8, 16]
+        self.ema_alpha = ema_alpha
+        self.threshold_k = threshold_k
+        self.window_size = window_size
+        self.eval_interval = eval_interval
+        self.warmup_steps = warmup_steps
 
-    def reset(self):
-        """Reset controller to initial state."""
-        self.rank = self.RANKS[-1]
-        self.orbit_stack = []
-        self.loss_ema = 0.0
-        self.prev_loss = None
-        self.phi_hist = []
-        self.stable_count = 0
-        self.step_count = 0
-        self.post_warmup = False
+        # Per-adapter state
+        self.states: Dict[str, OrbitalState] = {}
+        for name, adapter in adapters.items():
+            initial_rank = self._nearest_level(adapter.active_rank)
+            adapter.active_rank = initial_rank
+            self.states[name] = OrbitalState(
+                current_rank=initial_rank,
+                stress_history=deque(maxlen=window_size),
+            )
 
-        self.history = {
-            "rank": [],
-            "phi": [],
-            "stable_count": [],
-        }
+        # Global log
+        self.transition_log: List[OrbitalTransition] = []
+        self.global_step = 0
 
-    # ── Stress signal ───────────────────────────────
+    # ── Public API ──────────────────────────────────────────────
 
-    def _compute_phi(self, loss: float) -> float:
+    def step(self) -> List[OrbitalTransition]:
         """
-        Stress signal from loss trajectory.
-
-        φ = |loss - EMA| + 2.0 × max(0, loss - prev_loss)
-
-        Combines deviation from trend (general instability)
-        with spike detection (sudden deterioration).
+        Call once per training step (after backward, before optimizer.step).
+        Returns list of transitions that occurred (empty if no changes).
         """
-        self.loss_ema = 0.9 * self.loss_ema + 0.1 * loss
-        delta = abs(loss - self.loss_ema)
-        spike = max(0.0, loss - self.prev_loss) if self.prev_loss is not None else 0.0
-        self.prev_loss = loss
-        return delta + 2.0 * spike
+        self.global_step += 1
+        transitions = []
 
-    def _thresholds(self):
-        """
-        Adaptive thresholds from running statistics.
+        for name, adapter in self.adapters.items():
+            state = self.states[name]
 
-        t_stress = μ + 0.7σ  (above this → ascend)
-        t_stable = μ - 0.3σ  (below this → stability confirmed)
+            # Compute gradient stress
+            stress = self._compute_stress(adapter)
+            state.stress_ema = (
+                (1 - self.ema_alpha) * state.stress_ema + self.ema_alpha * stress
+            )
+            state.stress_history.append(state.stress_ema)
 
-        Auto-calibrates to loss scale. No manual tuning.
-        """
-        if len(self.phi_hist) < 10:
-            return 0.15, 0.04
-        recent = self.phi_hist[-40:]
-        mu = np.mean(recent)
-        sigma = np.std(recent) + 1e-8
-        t_stress = mu + 0.7 * sigma
-        t_stable = max(mu - 0.3 * sigma, 0.0)
-        return t_stress, t_stable
+            # Only evaluate at intervals and after warmup
+            if (
+                self.global_step < self.warmup_steps
+                or self.global_step % self.eval_interval != 0
+            ):
+                continue
 
-    # ── Core logic ──────────────────────────────────
+            transition = self._evaluate_transition(name, adapter, state)
+            if transition is not None:
+                transitions.append(transition)
+                self.transition_log.append(transition)
 
-    def _rank_index(self) -> int:
-        return self.RANKS.index(self.rank)
+        return transitions
 
-    def step(self, loss: float) -> int:
-        """
-        Called once per training step. Returns the capacity level to use.
+    def get_summary(self) -> Dict[str, dict]:
+        """Return current state of all adapters."""
+        summary = {}
+        for name, state in self.states.items():
+            summary[name] = {
+                "rank": state.current_rank,
+                "stress_ema": round(state.stress_ema, 6),
+                "transitions": len(state.orbit_stack),
+            }
+        return summary
 
-        Args:
-            loss: Current step loss value
+    def avg_rank(self) -> float:
+        """Average active rank across all adapters."""
+        ranks = [s.current_rank for s in self.states.values()]
+        return sum(ranks) / len(ranks) if ranks else 0.0
 
-        Returns:
-            int: Active rank (or capacity level) for next step
-        """
-        self.step_count += 1
+    def rank_saving_pct(self) -> float:
+        """Percentage rank reduction vs max allocation."""
+        max_total = sum(
+            self.rank_levels[-1] for _ in self.adapters
+        )
+        active_total = sum(s.current_rank for s in self.states.values())
+        return (1 - active_total / max_total) * 100 if max_total > 0 else 0.0
 
-        # First step: initialize EMA
-        if self.prev_loss is None:
-            self.loss_ema = loss
-            self.prev_loss = loss
-            self._log(0.0)
-            return self.rank
+    # ── Internal logic ──────────────────────────────────────────
 
-        phi = self._compute_phi(loss)
-        self.phi_hist.append(phi)
+    def _compute_stress(self, adapter: NestedLoRALinear) -> float:
+        """Gradient L2 norm of active LoRA parameters."""
+        total = 0.0
+        for p in [adapter.lora_A, adapter.lora_B]:
+            if p.grad is not None:
+                total += p.grad.data.norm(2).item() ** 2
+        return math.sqrt(total)
 
-        # Warmup: build baseline at max capacity
-        if self.step_count <= self.warmup:
-            self._log(phi)
-            return self.rank
+    def _evaluate_transition(
+        self,
+        name: str,
+        adapter: NestedLoRALinear,
+        state: OrbitalState,
+    ) -> Optional[OrbitalTransition]:
+        """Check if stress warrants an orbital transition."""
+        if len(state.stress_history) < 10:
+            return None
 
-        # Transition: warmup → ground state
-        if not self.post_warmup:
-            self.post_warmup = True
-            self.rank = self.RANKS[0]
-            self.orbit_stack = []
-            self.stable_count = 0
-            self._log(phi)
-            return self.rank
+        history = list(state.stress_history)
+        mu = sum(history) / len(history)
+        sigma = math.sqrt(sum((x - mu) ** 2 for x in history) / len(history))
 
-        t_stress, t_stable = self._thresholds()
+        promote_thresh = mu + self.threshold_k * sigma
+        demote_thresh = mu - self.threshold_k * sigma
 
-        # Stability counter
-        if phi <= t_stable:
-            self.stable_count += 1
-        elif phi > t_stress:
-            self.stable_count = 0
-        else:
-            self.stable_count = max(0, self.stable_count - 1)
+        current_idx = self._level_index(state.current_rank)
 
-        # ASCEND: stress → jump to higher orbital
-        if phi > t_stress and self.rank < self.RANKS[-1]:
-            idx = self._rank_index()
-            new_idx = min(idx + 1, len(self.RANKS) - 1)
-            new_rank = self.RANKS[new_idx]
-            if new_rank != self.rank:
-                self.orbit_stack.append(new_rank - self.rank)
-                self.rank = new_rank
-                self.stable_count = 0
-            self._log(phi)
-            return self.rank
+        # Promote: stress above upper threshold → need more capacity
+        if state.stress_ema > promote_thresh and current_idx < len(self.rank_levels) - 1:
+            new_rank = self.rank_levels[current_idx + 1]
+            return self._apply_transition(
+                name, adapter, state, new_rank, state.stress_ema, promote_thresh, "promote"
+            )
 
-        # DESCEND: confirmed stability → symmetric return
-        if self.stable_count >= self.stable_window and self.orbit_stack:
-            delta = self.orbit_stack.pop()
-            target = self.rank - delta
-            self.rank = min(self.RANKS, key=lambda r: abs(r - target))
-            self.rank = max(self.rank, self.RANKS[0])
-            self.stable_count = 0
-            self._log(phi)
-            return self.rank
+        # Demote: stress below lower threshold → can reduce capacity
+        if state.stress_ema < demote_thresh and current_idx > 0:
+            new_rank = self.rank_levels[current_idx - 1]
+            return self._apply_transition(
+                name, adapter, state, new_rank, state.stress_ema, demote_thresh, "demote"
+            )
 
-        # HOLD: neutral → don't move
-        self._log(phi)
-        return self.rank
+        return None
 
-    # ── Introspection ───────────────────────────────
+    def _apply_transition(
+        self,
+        name: str,
+        adapter: NestedLoRALinear,
+        state: OrbitalState,
+        new_rank: int,
+        stress: float,
+        threshold: float,
+        direction: str,
+    ) -> OrbitalTransition:
+        """Execute a rank change."""
+        old_rank = state.current_rank
 
-    def _log(self, phi: float):
-        self.history["rank"].append(self.rank)
-        self.history["phi"].append(phi)
-        self.history["stable_count"].append(self.stable_count)
+        # Apply the slice change
+        adapter.active_rank = new_rank
+        state.current_rank = new_rank
+        state.orbit_stack.append((self.global_step, new_rank, direction))
 
-    def get_state(self) -> Dict:
-        """Current controller state."""
-        return {
-            "rank": self.rank,
-            "step": self.step_count,
-            "orbit_stack": list(self.orbit_stack),
-            "stable_count": self.stable_count,
-            "phi": self.phi_hist[-1] if self.phi_hist else 0.0,
-        }
-
-    def get_history(self) -> Dict[str, list]:
-        """Complete training history."""
-        return self.history
-
-    def __repr__(self) -> str:
-        return (
-            f"OrbitalController(step={self.step_count}, rank={self.rank}, "
-            f"stack={self.orbit_stack}, stable={self.stable_count})"
+        return OrbitalTransition(
+            step=self.global_step,
+            layer_name=name,
+            old_rank=old_rank,
+            new_rank=new_rank,
+            stress=stress,
+            threshold=threshold,
+            direction=direction,
         )
 
+    def _nearest_level(self, rank: int) -> int:
+        """Snap a rank value to the nearest allowed level."""
+        return min(self.rank_levels, key=lambda r: abs(r - rank))
 
-# ============================================================
-# CONVENIENCE: setup helper
-# ============================================================
+    def _level_index(self, rank: int) -> int:
+        """Index of rank in rank_levels."""
+        try:
+            return self.rank_levels.index(rank)
+        except ValueError:
+            return self.rank_levels.index(self._nearest_level(rank))
 
-def setup_unified_lora(model, max_rank=16, ranks=None, warmup=10, stable_window=6):
+
+# ── Convenience setup ───────────────────────────────────────────
+
+
+def setup_unified_lora(
+    model: nn.Module,
+    target_modules: list[str] = None,
+    max_rank: int = 16,
+    alpha: float = 16.0,
+    rank_levels: list[int] = None,
+    **controller_kwargs,
+) -> Tuple[Dict[str, NestedLoRALinear], OrbitalController]:
     """
     One-call setup: inject NestedLoRA + create OrbitalController.
 
     Args:
-        model: PyTorch model
-        max_rank: Maximum LoRA rank
-        ranks: Available rank levels
-        warmup: Controller warmup steps
-        stable_window: Steps of stability before descent
+        model: Base model to adapt.
+        target_modules: Layer name patterns (default: ["q_proj", "v_proj"]).
+        max_rank: Maximum rank per adapter.
+        alpha: LoRA alpha.
+        rank_levels: Allowed orbital levels (default: [4, 8, 16]).
+        **controller_kwargs: Passed to OrbitalController.
 
     Returns:
-        (model, controller) tuple
+        (adapters_dict, controller)
 
-    Example:
-        >>> from orbital_controller import setup_unified_lora
-        >>> from nested_lora import set_rank
-        >>>
-        >>> model, ctrl = setup_unified_lora(model)
-        >>> for step, batch in enumerate(loader):
-        ...     loss = model(**batch).loss
-        ...     set_rank(model, ctrl.step(loss.item()))
-        ...     loss.backward(); optimizer.step(); optimizer.zero_grad()
+    Usage:
+        adapters, ctrl = setup_unified_lora(model)
+        for batch in dataloader:
+            loss = model(batch)
+            loss.backward()
+            ctrl.step()
+            optimizer.step()
     """
     from nested_lora import inject_nested_lora
 
-    model = inject_nested_lora(model, max_rank)
-    controller = OrbitalController(
-        ranks=ranks or [4, 8, 16],
-        warmup=warmup,
-        stable_window=stable_window,
+    if target_modules is None:
+        target_modules = ["q_proj", "v_proj"]
+    if rank_levels is None:
+        rank_levels = [4, 8, 16]
+
+    adapters = inject_nested_lora(
+        model, target_modules, max_rank=max_rank, alpha=alpha
     )
-    return model, controller
 
+    controller = OrbitalController(
+        adapters, rank_levels=rank_levels, **controller_kwargs
+    )
 
-# ============================================================
-# DEMO
-# ============================================================
-
-if __name__ == "__main__":
-    print("Orbital Controller — Demo")
-    print("=" * 50)
-    print("Simulating: 30 stable → 10 shock → 30 recovery\n")
-
-    ctrl = OrbitalController(warmup=8, stable_window=5)
-
-    for step in range(70):
-        if step < 30:
-            loss = np.random.uniform(0.4, 0.6)
-        elif step < 40:
-            loss = np.random.uniform(1.5, 3.0)
-        else:
-            loss = np.random.uniform(0.3, 0.5)
-
-        rank = ctrl.step(loss)
-
-        if step % 5 == 0 or step == 30:
-            s = ctrl.get_state()
-            tag = " <<<SHOCK" if step == 30 else ""
-            print(f"  [{step:3d}] rank={rank:2d}  phi={s['phi']:.3f}  stack={s['orbit_stack']}{tag}")
-
-    print(f"\nFinal: {ctrl}")
+    return adapters, controller
