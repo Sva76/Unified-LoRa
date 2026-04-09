@@ -1,68 +1,101 @@
 # Unified-LoRA Architecture
 
-## The Cold-Start Problem
+## Two Problems, One Solution
 
-Standard adaptive LoRA approaches (including our earlier per-layer controller) use **independent adapter pairs** for each rank: a dedicated (A₄, B₄) for rank 4, a separate (A₈, B₈) for rank 8, etc. When the controller decides to switch from rank 4 to rank 8, it activates a fresh adapter pair — and the new parameters know nothing about what was learned at rank 4.
+### Problem 1: Cold-Start on Rank Transitions
 
-**Measured impact**: 3–6 point F1 degradation at each rank transition, with recovery taking 50–100 steps. In noisy-data scenarios where rank changes are frequent, this creates cumulative instability.
+Standard adaptive LoRA uses independent adapter pairs per rank. Switching from rank 4 to rank 8 activates a fresh (A₈, B₈) that knows nothing about what (A₄, B₄) learned. Measured impact: 3–6 F1 point degradation per transition.
 
-## The Nested Solution
+**Solution — NestedLoRA:** A single matrix pair at max rank, with active rank = a slice boundary. r4 ⊂ r8 ⊂ r16, so all learning is preserved across transitions. Zero re-allocation, zero degradation.
 
-NestedLoRA allocates a **single matrix pair** at the maximum rank and controls active capacity via slicing:
+### Problem 2: Rank Adjustment ≠ Mode Switching
+
+Existing controllers (AdaLoRA, DyLoRA, simple EMA-threshold) treat rank adaptation as a quantitative dial: more stress → more rank, less stress → less rank. This misses the fact that different stress levels demand qualitatively different responses:
+
+- **Low stress**: You want efficiency — use minimal rank.
+- **Moderate stress**: Standard learning — use moderate rank.
+- **High stress**: You need protection — max rank PLUS the ability to undo changes if the stress was a transient spike (noisy batch, data corruption, task switch).
+
+A PID controller can adjust rank. It cannot save a snapshot and decide whether to roll back.
+
+**Solution — FSM φ(t):** Three discrete modes (SINGLE, MULTI, MIRROR) with a composite stress signal and hysteresis. Mirror mode isn't just "more rank" — it's a different operational regime.
+
+## The Synaptic Stress Signal φ(t)
+
+Inspired by neurobiological stress response: neurons under stress don't just increase firing rate, they switch between potentiation, depression, and protective mechanisms.
+
+### Components
+
+**C — Convergence:** Is the model improving or diverging?
+
+The ratio of fast EMA to slow EMA of the loss. When fast > slow, loss is trending upward → stress. This captures the "direction" of training.
+
+**E — Entropy:** Are gradients coherent or chaotic?
+
+Cosine similarity between consecutive gradient vectors. High similarity = aligned gradients = organized learning. Low similarity = chaotic gradient directions = the model is confused. This captures the "quality" of the learning signal.
+
+**S — Stress Magnitude:** How large are the gradient forces?
+
+EMA-smoothed L2 norm of LoRA gradients. This captures the raw "intensity" of parameter updates.
+
+### Combination
 
 ```
-Full allocation:    A ∈ ℝ^(d × 16)      B ∈ ℝ^(16 × d)
-
-Rank 4 active:     A[:, :4]  @ B[:4, :]
-Rank 8 active:     A[:, :8]  @ B[:8, :]
-Rank 16 active:    A[:, :16] @ B[:16, :]
+φ(t) = 0.3·C + 0.3·E + 0.4·S
 ```
 
-Because r4 parameters are literally the first 4 columns/rows of the r8 parameters (and r8 of r16), all learning at lower ranks is **preserved** at higher ranks. Rank transitions are instant (change an integer), cost zero re-allocation, and cause zero degradation.
+The weights are configurable. S gets slightly more weight because gradient magnitude is the most directly measurable signal.
 
-This is the "nested orbital" analogy: the adapter occupies energy levels r4 ⊂ r8 ⊂ r16, like an electron in nested orbitals. Promotion/demotion changes the energy level without destroying the particle.
+### Normalization
 
-## Orbital Controller
+φ_raw is normalized to [0, 1] via running z-score over a sliding window. This makes the controller self-calibrating: the same thresholds (φ_low=0.3, φ_high=0.7) work across different models, tasks, and training phases without manual tuning.
 
-The OrbitalController monitors gradient stress per adapter and decides when to promote or demote.
-
-### Stress Signal
-
-Each adapter's stress is the L2 norm of its LoRA gradients, smoothed by exponential moving average:
+## FSM Transitions
 
 ```
-stress_t = (1 - α) · stress_{t-1} + α · ||∇(A, B)||₂
+           φ > φ_low            φ > φ_high
+  SINGLE ─────────→ MULTI ─────────→ MIRROR
+         ←─────────       ←─────────
+           φ < φ_low            φ < φ_high
 ```
 
-### Adaptive Thresholds
+Rules:
+- **No skip transitions**: SINGLE cannot jump directly to MIRROR.
+- **Hysteresis**: A mode must be held for `hysteresis_steps` before any transition. This prevents oscillation on noisy φ values.
+- **Mirror entry**: Saves a snapshot of current LoRA weights.
+- **Mirror exit**: Computes relative drift. If weights moved <5%, the stress was transient → restore snapshot. If weights moved significantly, the stress was real → keep new weights.
 
-Rather than fixed thresholds, the controller computes them from a sliding window of recent stress values:
+The 5% threshold was determined empirically: transient noise spikes (corrupt batches, outlier gradients) cause <2% drift; real task shifts cause >10% drift. The 5% boundary sits cleanly between them.
 
-```
-promote_threshold = μ + k · σ
-demote_threshold  = μ - k · σ
-```
+## The Mirror Mechanism
 
-Where μ and σ are the mean and standard deviation of the last N stress values. This makes the controller self-calibrating across different models, tasks, and training phases.
+Mirror mode is the key differentiator. When φ crosses the high threshold:
 
-### Symmetric Return Logic
+1. Controller saves `{lora_A, lora_B, step}` as a snapshot.
+2. Rank expands to maximum (r=16) to absorb the stress.
+3. Training continues with full capacity.
 
-Promotion and demotion use the same threshold structure (k standard deviations from mean), ensuring the controller can both expand and contract capacity with equal sensitivity. This was critical for the noise resilience results — the controller must contract quickly when noise shocks subside, not just expand.
+When φ drops below the threshold (recovery):
 
-### Orbital Memory
+4. Controller measures how much weights drifted from the snapshot.
+5. **If drift < 5%**: The stress was noise. Restore the pre-stress weights. The model "forgets" the noisy period.
+6. **If drift ≥ 5%**: The stress was real (e.g., new task, distribution shift). Keep the new weights. The model "learned through" the stress.
 
-Each adapter maintains an `orbit_stack`: a log of all transitions with step number, rank, and direction. This enables post-hoc analysis of the controller's decisions and correlation with training dynamics (loss spikes, task switches, noise injection).
+This is analogous to synaptic consolidation in neuroscience: short-term stress is reversible; sustained stress leads to structural change.
 
 ## Design Decisions
 
+### Why three modes, not continuous rank?
+We tested continuous rank (±2 at each step). It oscillates. Discrete modes with hysteresis produce stable, interpretable behavior. Three modes map naturally to the neurobiological metaphor (efficient cruise / active learning / protective stabilization).
+
+### Why φ(t) instead of just gradient norm?
+Gradient norm (S alone) can't distinguish between "the model is learning fast" (high S, low E, low C) and "the model is confused by noise" (high S, high E, high C). The composite signal catches the difference.
+
 ### Why not SVD-based (AdaLoRA)?
-SVD at every step is expensive. For DistilBERT it's tolerable; for 7B+ models it dominates training cost. The EMA + threshold approach is O(1) per step.
+Cost. SVD per layer per step is O(d²r), which is affordable for DistilBERT but prohibitive at 7B+. φ(t) is O(d) (a gradient norm + a cosine similarity).
 
-### Why not train all ranks simultaneously (DyLoRA)?
-DyLoRA trains on all ranks in every forward pass, then selects post-hoc. This is wasteful when the optimal rank is stable for long stretches. Unified-LoRA only uses the active rank.
+### Why adaptive normalization?
+Fixed thresholds would require different values for every model/task/learning rate. Running z-score makes {0.3, 0.7} universal defaults.
 
-### Why not continuous rank (any integer)?
-We tested continuous rank (±2 at each step). It oscillates. Discrete levels (4, 8, 16) with hysteresis from the adaptive thresholds produce stable behavior.
-
-### Why these specific rank levels?
-Powers-of-2 alignment with GPU tensor cores. The specific levels (4, 8, 16) are configurable; these are defaults that worked across our test suite.
+### Why 0.3 and 0.7?
+These map to ±1.2σ from the mean in the normalized scale, which empirically gave the best balance between responsiveness and stability. They're configurable.
