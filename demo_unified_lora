@@ -1,99 +1,170 @@
-!pip install -q transformers datasets torch matplotlib
+"""
+Unified-LoRA Demo — Colab Script
+=================================
 
+Demonstrates dual ΔW control (rank + LR) under simulated stress.
 
+Steps 15-25: loss is artificially multiplied by 3× to simulate
+a noisy data shock. The controller should:
+    1. Detect stress via φ
+    2. Drop rank (constrain ΔW subspace)
+    3. Drop LR (reduce ΔW magnitude)
+    4. Optionally save weight snapshot
+    5. Recover after shock subsides
+
+Run in Google Colab:
+    !pip install -q transformers datasets torch matplotlib
+    !git clone https://github.com/Sva76/Unified-LoRa
+    %run Unified-LoRa/demo.py
+
+Author: Simona Vargiu
+License: Apache 2.0
+"""
+
+# ── Setup ───────────────────────────────────────────────────────
+
+import sys
 import torch
+import matplotlib.pyplot as plt
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from datasets import load_dataset
 
+# Add repo to path (for Colab after git clone)
+sys.path.insert(0, "/content/Unified-LoRa")
 
-IMPORT DAL REPO
-
-
-!git clone https://github.com/Sva76/Unified-LoRa
-import sys
-sys.path.append("/content/Unified-LoRa")
-
-
-from nested_lora import inject_nested_lora, set_rank
+from nested_lora import inject_nested_lora, set_rank, get_lora_params
 from orbital_controller import OrbitalController
 
 
-MODEL
-
+# ── Model ───────────────────────────────────────────────────────
 
 model_name = "distilbert-base-uncased"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
 
+# Freeze base model
+for p in model.parameters():
+    p.requires_grad = False
 
-model = inject_nested_lora(model, max_rank=16)
-ctrl = OrbitalController(warmup=5, stable_window=4)
+# Inject NestedLoRA (DistilBERT uses q_lin/v_lin, not q_proj/v_proj)
+adapters = inject_nested_lora(model, target_modules=["q_lin", "v_lin"], max_rank=16)
+
+# Optimizer over LoRA params only
+opt = torch.optim.AdamW(list(get_lora_params(model)), lr=5e-5)
+
+# Controller — dual control (rank + LR)
+ctrl = OrbitalController(
+    rank_levels=[4, 8, 16],
+    base_lr=5e-5,
+    warmup=5,
+    stable_window=4,
+    eval_interval=3,
+)
+ctrl.link_optimizer(opt)
+ctrl.link_adapters(adapters)
 
 
-DATA
-
+# ── Data ────────────────────────────────────────────────────────
 
 ds = load_dataset("glue", "sst2", split="train[:120]")
 
 
 def tok(x):
-return tokenizer(x["sentence"], truncation=True, padding="max_length", max_length=64)
+    return tokenizer(x["sentence"], truncation=True, padding="max_length", max_length=64)
 
 
 ds = ds.map(tok)
-ds.set_format(type="torch", columns=["input_ids","attention_mask","label"])
+ds.set_format(type="torch", columns=["input_ids", "attention_mask", "label"])
 loader = torch.utils.data.DataLoader(ds, batch_size=8)
 
 
-opt = torch.optim.AdamW(model.parameters(), lr=5e-5)
-
-
-TRAIN + TRACK
-
+# ── Train + Track ──────────────────────────────────────────────
 
 ranks = []
 losses = []
+lrs = []
+states = []
 
+print(f"{'Step':>4}  {'Loss':>7}  {'Rank':>4}  {'LR':>10}  {'State':>6}  {'Note'}")
+print("-" * 55)
 
 for step, batch in enumerate(loader):
-if step > 40:
-break
+    if step > 40:
+        break
+
+    loss = model(
+        input_ids=batch["input_ids"],
+        attention_mask=batch["attention_mask"],
+        labels=batch["label"],
+    ).loss
+
+    # ── Simulated shock: steps 15-25 ────────────────────────
+    note = ""
+    if 15 < step < 25:
+        loss = loss * 3.0
+        note = "⚡ SHOCK"
+
+    loss.backward()
+
+    # ── Controller step: returns rank, adjusts LR internally
+    rank = ctrl.step(loss.item())
+    set_rank(model, rank)
+
+    # Track
+    ranks.append(rank)
+    losses.append(loss.item())
+    lrs.append(ctrl.current_lr)
+    states.append(ctrl.current_state.name)
+
+    print(f"{step:4d}  {loss.item():7.2f}  {rank:4d}  {ctrl.current_lr:.2e}  "
+          f"{ctrl.current_state.name:>6}  {note}")
+
+    opt.step()
+    opt.zero_grad()
 
 
-loss = model(
-    input_ids=batch["input_ids"],
-    attention_mask=batch["attention_mask"],
-    labels=batch["label"]
-).loss
+# ── Summary ─────────────────────────────────────────────────────
 
-# SHOCK
-if 15 < step < 25:
-    loss = loss * 3.0
+print("\n" + "=" * 55)
+print("Controller Summary:")
+for k, v in ctrl.get_summary().items():
+    print(f"  {k}: {v}")
 
-rank = ctrl.step(loss.item())
-set_rank(model, rank)
-
-ranks.append(rank)
-losses.append(loss.item())
-
-loss.backward()
-opt.step()
-opt.zero_grad()
-
-print(step, "loss:", round(loss.item(),2), "rank:", rank)
+if ctrl.transition_log:
+    print("\nTransition History:")
+    for t in ctrl.orbit_history():
+        print(f"  step {t['step']}: {t['from']}→{t['to']}  "
+              f"rank={t['rank']}  lr={t['lr']:.2e}  φ={t['phi']:.4f}  "
+              f"[{t['trigger']}] {t['snapshot']}")
 
 
+# ── Plot ────────────────────────────────────────────────────────
 
-PLOT
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
+# Loss
+ax1.plot(losses, color="steelblue", linewidth=1.5)
+ax1.axvspan(15, 25, alpha=0.15, color="red", label="Shock zone")
+ax1.set_ylabel("Loss")
+ax1.legend()
+ax1.set_title("Unified-LoRA: Dual ΔW Control Demo")
 
-import matplotlib.pyplot as plt
+# Rank
+ax2.plot(ranks, color="darkorange", linewidth=2, drawstyle="steps-post")
+ax2.set_ylabel("Active Rank")
+ax2.set_ylim(0, 20)
+ax2.axhline(y=8, color="gray", linestyle="--", alpha=0.5, label="Base rank")
+ax2.axvspan(15, 25, alpha=0.15, color="red")
+ax2.legend()
 
+# LR
+ax3.plot(lrs, color="seagreen", linewidth=1.5, drawstyle="steps-post")
+ax3.set_ylabel("Learning Rate")
+ax3.set_xlabel("Step")
+ax3.axvspan(15, 25, alpha=0.15, color="red")
 
-plt.plot(ranks, label="rank")
-plt.plot(losses, label="loss")
-plt.axvspan(15, 25, alpha=0.2)
-plt.legend()
-plt.title("Unified-LoRA Demo")
+plt.tight_layout()
+plt.savefig("unified_lora_demo.png", dpi=150, bbox_inches="tight")
 plt.show()
 
+print("\nPlot saved to unified_lora_demo.png")
