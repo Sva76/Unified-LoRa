@@ -1,88 +1,73 @@
-"""
-NestedLoRA — Execution Engine (Weight-Control Aware)
-===================================================
+import torch
+import torch.nn as nn
+import math
 
-LoRA adapter where rank is controlled by matrix slicing, not by
-swapping separate adapter pairs.
+class NestedLoRALinear(nn.Module):
+    def __init__(self, in_features, out_features, max_rank=16, alpha=16.0, bias=True):
+        super().__init__()
 
-Architecture
-------------
-A single pair of matrices is allocated once:
+        self.in_features = in_features
+        self.out_features = out_features
+        self.max_rank = max_rank
+        self.alpha = alpha
+        self.active_rank = max_rank
 
-    A ∈ ℝ^(d × R_max)
-    B ∈ ℝ^(R_max × d)
+        self.weight = nn.Parameter(torch.empty(out_features, in_features), requires_grad=False)
+        self.bias_param = nn.Parameter(torch.zeros(out_features)) if bias else None
 
-Active rank r is a slice of these matrices:
+        self.lora_A = nn.Parameter(torch.empty(in_features, max_rank))
+        self.lora_B = nn.Parameter(torch.zeros(max_rank, out_features))
 
-    ΔW = A[:, :r] @ B[:r, :]
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
 
-with:
+    @property
+    def scaling(self):
+        return self.alpha / self.active_rank if self.active_rank > 0 else 0.0
 
-    r_small ⊂ r_medium ⊂ r_large
+    def forward(self, x):
+        base = nn.functional.linear(x, self.weight, self.bias_param)
 
-Changing rank = moving the slice boundary.
+        if self.active_rank > 0:
+            A = self.lora_A[:, :self.active_rank]
+            B = self.lora_B[:self.active_rank, :]
+            return base + (x @ A @ B) * self.scaling
 
-Properties:
-- No re-allocation
-- No cold-start
-- Strict parameter nesting across ranks
+        return base
 
-Forward:
-    h = x @ W + (x @ A[:, :r] @ B[:r, :]) * (α / r)
 
---------------------------------------------------
+def inject_nested_lora(model, target_modules, max_rank=16, alpha=16.0):
+    adapters = {}
 
-Weight Control Interpretation
------------------------------
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, nn.Linear):
+            continue
 
-NestedLoRA is not only a memory optimization.
+        if not any(t in name for t in target_modules):
+            continue
 
-It provides direct control over the update matrix:
+        new_layer = NestedLoRALinear(
+            module.in_features,
+            module.out_features,
+            max_rank=max_rank,
+            alpha=alpha,
+            bias=module.bias is not None,
+        )
 
-    ΔW = A_r @ B_r
+        new_layer.weight.data.copy_(module.weight.data)
 
-where r defines the dimensionality of the update subspace.
+        if module.bias is not None:
+            new_layer.bias_param.data.copy_(module.bias.data)
 
-Implications:
+        parent_name, attr_name = name.rsplit(".", 1) if "." in name else ("", name)
+        parent = model.get_submodule(parent_name) if parent_name else model
+        setattr(parent, attr_name, new_layer)
 
-- Low rank → constrained ΔW (restricted update space)
-- High rank → expanded ΔW (higher expressivity, higher variance)
+        adapters[name] = new_layer
 
-Therefore:
+    return adapters
 
-    Rank ≠ capacity only
-    Rank = control over ΔW
 
---------------------------------------------------
-
-Control Perspective
--------------------
-
-In a dynamic setting, rank becomes a control variable:
-
-    controller → sets r → defines ΔW space → shapes weight dynamics
-
-This enables:
-
-- Progressive expansion of learning capacity without reset
-- Smooth transitions between regimes (stable ↔ unstable)
-- Direct modulation of weight drift
-
-When combined with a controller (e.g. FSM / Orbital LR),
-NestedLoRA becomes part of a closed-loop system:
-
-    loss dynamics → controller → rank → ΔW → training stability
-
---------------------------------------------------
-
-Key Insight
------------
-
-    Rank is not just capacity.
-    Rank is a control mechanism over weight updates.
-
---------------------------------------------------
-
-Author: Simona Vargiu
-License: Apache 2.0
-"""
+def set_rank(model, rank):
+    for m in model.modules():
+        if isinstance(m, NestedLoRALinear):
+            m.active_rank = min(rank, m.max_rank)
