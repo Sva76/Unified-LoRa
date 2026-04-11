@@ -5,7 +5,7 @@ Unified-LoRA Controller
 Convenience wrapper that exposes the full Unified-LoRA stack:
 
 - nested_lora.py        → execution engine (LoRA with dynamic rank slicing)
-- orbital_controller.py → control logic (stress-driven rank adaptation)
+- orbital_controller.py → control logic (dual ΔW control: rank + LR)
 
 Use this module for simple integration, or import submodules directly
 for fine-grained control.
