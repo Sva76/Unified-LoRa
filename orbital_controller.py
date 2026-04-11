@@ -1,97 +1,77 @@
 """
-OrbitalLRController — Weight Dynamics Stabilizer
-================================================
+OrbitalController — Dual ΔW Control (Rank + Learning Rate)
+============================================================
 
-Adaptive learning rate controller designed to regulate weight updates (ΔW)
-during training by reacting to instability signals in real time.
+Closed-loop controller that stabilizes training by regulating
+weight updates (ΔW) through TWO independent control channels:
 
-Unlike static schedulers (cosine, linear), this controller operates as a
-closed-loop system:
+    ΔW = LR × ∇L    (magnitude)
+    ΔW = A_r @ B_r   (subspace)
 
-    loss → instability signal (φ) → LR adjustment → ΔW modulation
+Channel 1 — RANK (via NestedLoRA):
+    Controls the dimensionality of the update subspace.
+    Low rank → constrained ΔW direction → safer updates.
+    High rank → expanded ΔW direction → more expressive but riskier.
 
-------------------------------------------------------------------
+Channel 2 — LEARNING RATE:
+    Controls the magnitude of the update.
+    Low LR → small ΔW steps → stable but slow.
+    High LR → large ΔW steps → fast but unstable.
 
-⚠️ CORE IDEA: CONTROL OF ΔW (WEIGHT UPDATES)
-
-Learning rate directly scales weight updates:
-
-    ΔW ∝ LR × ∇L
-
-This means:
-
-- High LR → large ΔW → fast learning but unstable
-- Low LR  → small ΔW → stable but slow
-
-OrbitalLRController dynamically adjusts LR to keep ΔW within a stable regime.
+Together:
+    Rank controls WHERE updates happen.
+    LR controls HOW MUCH update happens.
+    Full ΔW control = direction + magnitude.
 
 ------------------------------------------------------------------
 
-CONTROL MECHANISM
+INSTABILITY SIGNAL φ
 
-We define an instability signal φ based on:
+    φ = |loss - EMA(loss)| + spike_weight × max(0, loss - prev_loss)
 
-- deviation from EMA(loss)
-- loss spikes (Δloss)
+    deviation: sustained divergence from trend
+    spike: sudden jumps (noisy batches, data corruption)
 
-    φ = |loss - EMA(loss)| + spike_component
+φ drives both control channels simultaneously:
 
-The controller maintains two adaptive thresholds:
+    φ rising  → reduce rank + reduce LR  (double brake)
+    φ falling → increase rank + increase LR (double accelerator)
+    φ stable  → hold current state
 
-- stress threshold → instability detected → reduce LR
-- stable threshold → recovery detected → increase LR
+------------------------------------------------------------------
 
-This creates an orbital behavior:
+ORBITAL STATES
 
-    HIGH → BASE → LOW → BASE → HIGH
+    HIGH   — φ low,  stable conditions   → max rank, aggressive LR
+    BASE   — φ mid,  normal training     → mid rank, base LR
+    LOW    — φ high, instability detected → min rank, protective LR
+                                            + weight snapshot for rollback
 
-Each transition corresponds to regulating ΔW magnitude.
+Transitions: HIGH ↔ BASE ↔ LOW (no skip, hysteresis enforced)
+
+On entering LOW:  save weight snapshot (Mirror mechanism)
+On leaving LOW:   if weights drifted < 5%, restore snapshot
+                  (stress was transient noise)
 
 ------------------------------------------------------------------
 
 BEHAVIOR UNDER STRESS
 
 Without control:
-    ΔW grows uncontrollably → weight drift → collapse (NaN / divergence)
+    ΔW grows uncontrollably → weight drift → collapse
 
 With Orbital control:
-    ΔW is reduced during instability
-    → drift is bounded
+    Rank contracts (fewer update directions)
+    + LR drops (smaller update magnitude)
+    → ΔW is doubly bounded
     → training survives
-
-------------------------------------------------------------------
-
-KEY PROPERTIES
-
-- Closed-loop (feedback-driven)
-- No predefined schedule
-- Reacts to real training dynamics
-- Prevents catastrophic updates
-- Enables aggressive training regimes
-
-------------------------------------------------------------------
-
-SYSTEM VIEW
-
-OrbitalLRController is one component of a broader weight control system:
-
-    controller → adjusts LR → modulates ΔW → stabilizes weights
-
-Combined with NestedLoRA:
-
-    rank → defines ΔW subspace
-    LR   → defines ΔW magnitude
-
-Together:
-
-    control over direction + control over magnitude = full ΔW control
 
 ------------------------------------------------------------------
 
 Key Insight:
 
-    Training stability is a function of controlled ΔW,
-    not just optimized loss.
+    Training stability = f(controlled ΔW)
+    Full ΔW control = rank (subspace) + LR (magnitude)
 
 ------------------------------------------------------------------
 
@@ -113,11 +93,10 @@ from nested_lora import NestedLoRALinear, inject_nested_lora
 # ── Types ───────────────────────────────────────────────────────
 
 
-class LRState(IntEnum):
-    """Orbital LR states — each represents a qualitative regime."""
-    HIGH = 0     # Aggressive learning — stable conditions
-    BASE = 1     # Normal learning — default operating point
-    LOW = 2      # Protective mode — instability detected
+class OrbitalState(IntEnum):
+    HIGH = 0    # Stable → max rank, aggressive LR
+    BASE = 1    # Normal → mid rank, base LR
+    LOW = 2     # Stress → min rank, protective LR + snapshot
 
 
 @dataclass
@@ -126,47 +105,25 @@ class PhiSnapshot:
     step: int
     loss: float
     loss_ema: float
-    deviation: float       # |loss - EMA(loss)|
-    spike: float           # max(0, loss - prev_loss)
-    phi: float             # Combined instability signal
-    phi_normalized: float  # φ mapped to [0, 1]
+    deviation: float
+    spike: float
+    phi: float
 
 
 @dataclass
-class LRTransition:
-    """Record of a learning rate change."""
+class Transition:
+    """Record of a state change."""
     step: int
-    old_state: LRState
-    new_state: LRState
+    old_state: OrbitalState
+    new_state: OrbitalState
+    old_rank: int
+    new_rank: int
     old_lr: float
     new_lr: float
     phi: float
-    trigger: str           # "stress" | "recovery" | "warmup"
-
-
-@dataclass
-class ControllerState:
-    """Internal state of the controller."""
-    current_lr_state: LRState = LRState.BASE
-    current_lr: float = 0.0
-
-    # Loss tracking
-    loss_ema: float = 0.0
-    prev_loss: float = 0.0
-    loss_history: deque = field(default_factory=lambda: deque(maxlen=200))
-
-    # φ tracking
-    phi_history: deque = field(default_factory=lambda: deque(maxlen=500))
-    phi_ema: float = 0.0
-
-    # Transition log
-    orbit_stack: list = field(default_factory=list)
-
-    # Hysteresis
-    steps_in_state: int = 0
-
-    # Mirror snapshot (weights saved on entering LOW state)
-    weight_snapshot: Optional[dict] = None
+    trigger: str
+    snapshot_saved: bool = False
+    snapshot_restored: bool = False
 
 
 # ── Controller ──────────────────────────────────────────────────
@@ -174,162 +131,160 @@ class ControllerState:
 
 class OrbitalController:
     """
-    Closed-loop learning rate controller that stabilizes ΔW.
+    Dual ΔW controller: adjusts rank AND learning rate based on φ(t).
 
-    Monitors an instability signal φ derived from loss dynamics and
-    adjusts learning rate across three orbital states (HIGH / BASE / LOW).
+    Simple API:
+        rank = ctrl.step(loss)    # returns recommended rank
+        set_rank(model, rank)     # apply to model
 
-    When combined with NestedLoRA:
-        - Rank controls the SUBSPACE of ΔW (direction)
-        - LR controls the MAGNITUDE of ΔW (amplitude)
-        - Together: full control over weight updates
+    If an optimizer is linked, LR is adjusted automatically.
 
     Args:
-        optimizer: The torch optimizer whose LR will be controlled.
-        base_lr: Default learning rate (BASE state).
-        high_lr: Aggressive learning rate (HIGH state). Default: 1.5× base.
-        low_lr: Protective learning rate (LOW state). Default: 0.3× base.
-        ema_alpha: Smoothing factor for loss EMA (0 < α ≤ 1).
-        spike_weight: Weight of the spike component in φ.
-        stress_k: Std deviations above mean φ to trigger stress (→ LOW).
-        recovery_k: Std deviations below mean φ to trigger recovery (→ HIGH).
-        hysteresis_steps: Minimum steps in a state before transition.
-        eval_interval: Steps between state evaluations.
-        warmup_steps: Steps before any state changes.
-        snapshot_on_stress: Save weight snapshot when entering LOW state.
-        snapshot_drift_threshold: Max relative drift to trigger rollback (0.05 = 5%).
+        rank_levels: [r_low, r_base, r_high] for [LOW, BASE, HIGH] states.
+            Default: [4, 8, 16].
+        base_lr: Base learning rate (BASE state).
+        lr_scale_high: LR multiplier for HIGH state (default: 1.5).
+        lr_scale_low: LR multiplier for LOW state (default: 0.3).
+        ema_alpha: Smoothing factor for loss EMA.
+        spike_weight: Weight of spike component in φ.
+        stress_k: Std devs above mean φ → stress trigger.
+        recovery_k: Std devs below mean φ → recovery trigger.
+        warmup: Steps before any state changes.
+        stable_window: Minimum steps in a state before transition.
+        eval_interval: Steps between evaluations.
+        snapshot_on_stress: Save weights when entering LOW.
+        drift_threshold: Max relative drift for snapshot rollback.
+        optimizer: Optional torch optimizer for LR control.
     """
 
     def __init__(
         self,
-        optimizer: torch.optim.Optimizer,
-        base_lr: float = 5e-4,
-        high_lr: float = None,
-        low_lr: float = None,
-        ema_alpha: float = 0.1,
-        spike_weight: float = 0.5,
-        stress_k: float = 1.5,
-        recovery_k: float = 1.0,
-        hysteresis_steps: int = 30,
-        eval_interval: int = 10,
-        warmup_steps: int = 50,
-        snapshot_on_stress: bool = True,
-        snapshot_drift_threshold: float = 0.05,
+        rank_levels=None,
+        base_lr=5e-4,
+        lr_scale_high=1.5,
+        lr_scale_low=0.3,
+        ema_alpha=0.1,
+        spike_weight=0.5,
+        stress_k=1.5,
+        recovery_k=1.0,
+        warmup=50,
+        stable_window=30,
+        eval_interval=5,
+        snapshot_on_stress=True,
+        drift_threshold=0.05,
+        optimizer=None,
     ):
-        self.optimizer = optimizer
+        self.rank_levels = rank_levels or [4, 8, 16]
+        assert len(self.rank_levels) == 3
+
         self.base_lr = base_lr
-        self.high_lr = high_lr or base_lr * 1.5
-        self.low_lr = low_lr or base_lr * 0.3
+        self.lr_high = base_lr * lr_scale_high
+        self.lr_low = base_lr * lr_scale_low
         self.ema_alpha = ema_alpha
         self.spike_weight = spike_weight
         self.stress_k = stress_k
         self.recovery_k = recovery_k
-        self.hysteresis_steps = hysteresis_steps
+        self.warmup = warmup
+        self.stable_window = stable_window
         self.eval_interval = eval_interval
-        self.warmup_steps = warmup_steps
         self.snapshot_on_stress = snapshot_on_stress
-        self.snapshot_drift_threshold = snapshot_drift_threshold
+        self.drift_threshold = drift_threshold
+        self.optimizer = optimizer
 
-        # State → LR mapping
-        self.state_lr = {
-            LRState.HIGH: self.high_lr,
-            LRState.BASE: self.base_lr,
-            LRState.LOW:  self.low_lr,
+        # State → (rank, lr) mapping
+        self._state_config = {
+            OrbitalState.HIGH: (self.rank_levels[2], self.lr_high),
+            OrbitalState.BASE: (self.rank_levels[1], self.base_lr),
+            OrbitalState.LOW:  (self.rank_levels[0], self.lr_low),
         }
 
         # Internal state
-        self.state = ControllerState(
-            current_lr=base_lr,
-            current_lr_state=LRState.BASE,
-        )
+        self.current_state = OrbitalState.BASE
+        self.current_rank = self.rank_levels[1]
+        self.current_lr = base_lr
 
-        self.transition_log: List[LRTransition] = []
-        self.phi_log: List[PhiSnapshot] = []
+        self.loss_ema = 0.0
+        self.prev_loss = 0.0
+        self.phi_history: deque = deque(maxlen=500)
+        self.phi_ema = 0.0
+
+        self.steps_in_state = 0
         self.global_step = 0
 
-        # Reference to adapters (set via setup_unified_lora)
+        self.weight_snapshot: Optional[dict] = None
         self._adapters: Optional[Dict[str, NestedLoRALinear]] = None
 
-        # Apply initial LR
-        self._set_lr(base_lr)
+        self.transition_log: List[Transition] = []
+        self.phi_log: List[PhiSnapshot] = []
 
-    # ── Public API ──────────────────────────────────────────────
+    # ── Main API ────────────────────────────────────────────────
 
-    def step(self, loss: float) -> Optional[LRTransition]:
+    def step(self, loss: float) -> int:
         """
-        Call once per training step (after backward, before optimizer.step).
+        Process one training step. Returns recommended rank.
 
-        This is the main control loop:
-            loss → φ → state evaluation → LR adjustment → ΔW regulation
+        Call AFTER loss.backward(), BEFORE optimizer.step().
+        If optimizer is linked, LR is adjusted automatically.
 
         Args:
-            loss: Current batch loss value (required).
+            loss: Current batch loss (scalar).
 
         Returns:
-            LRTransition if a state change occurred, None otherwise.
+            Active rank to apply via set_rank(model, rank).
         """
         self.global_step += 1
-        s = self.state
-        s.steps_in_state += 1
+        self.steps_in_state += 1
 
         # ── Compute φ ───────────────────────────────────────────
         phi_snap = self._compute_phi(loss)
         self.phi_log.append(phi_snap)
+        self.phi_history.append(phi_snap.phi)
+        self.phi_ema = (1 - self.ema_alpha) * self.phi_ema + self.ema_alpha * phi_snap.phi
 
-        s.phi_history.append(phi_snap.phi)
-        s.phi_ema = (1 - self.ema_alpha) * s.phi_ema + self.ema_alpha * phi_snap.phi_normalized
+        self.prev_loss = loss
 
-        # Update loss tracking
-        s.prev_loss = loss
-
-        # ── Evaluate state transition ───────────────────────────
+        # ── Evaluate state ──────────────────────────────────────
         if (
-            self.global_step < self.warmup_steps
-            or self.global_step % self.eval_interval != 0
+            self.global_step >= self.warmup
+            and self.global_step % self.eval_interval == 0
         ):
-            return None
+            self._evaluate(phi_snap)
 
-        transition = self._evaluate_transition(phi_snap)
-        if transition is not None:
-            self.transition_log.append(transition)
-            s.orbit_stack.append(transition)
+        return self.current_rank
 
-        return transition
+    def link_optimizer(self, optimizer: torch.optim.Optimizer):
+        """Link optimizer for automatic LR control."""
+        self.optimizer = optimizer
+        self._apply_lr(self.current_lr)
 
-    def get_lr(self) -> float:
-        """Current learning rate."""
-        return self.state.current_lr
-
-    def get_lr_state(self) -> LRState:
-        """Current orbital state."""
-        return self.state.current_lr_state
-
-    def get_phi(self) -> float:
-        """Current smoothed φ value."""
-        return self.state.phi_ema
+    def link_adapters(self, adapters: Dict[str, NestedLoRALinear]):
+        """Link adapters for weight snapshot mechanism."""
+        self._adapters = adapters
 
     def get_summary(self) -> dict:
-        """Current controller state."""
         return {
-            "lr_state": self.state.current_lr_state.name,
-            "lr": round(self.state.current_lr, 8),
-            "phi": round(self.state.phi_ema, 6),
-            "steps_in_state": self.state.steps_in_state,
-            "transitions": len(self.state.orbit_stack),
-            "has_snapshot": self.state.weight_snapshot is not None,
+            "state": self.current_state.name,
+            "rank": self.current_rank,
+            "lr": round(self.current_lr, 8),
+            "phi": round(self.phi_ema, 6),
+            "steps_in_state": self.steps_in_state,
+            "transitions": len(self.transition_log),
+            "has_snapshot": self.weight_snapshot is not None,
             "step": self.global_step,
         }
 
     def orbit_history(self) -> List[dict]:
-        """Condensed transition history for visualization."""
         return [
             {
                 "step": t.step,
                 "from": t.old_state.name,
                 "to": t.new_state.name,
+                "rank": t.new_rank,
                 "lr": round(t.new_lr, 8),
                 "phi": round(t.phi, 6),
                 "trigger": t.trigger,
+                "snapshot": "saved" if t.snapshot_saved else
+                           ("restored" if t.snapshot_restored else "—"),
             }
             for t in self.transition_log
         ]
@@ -338,217 +293,160 @@ class OrbitalController:
 
     def _compute_phi(self, loss: float) -> PhiSnapshot:
         """
-        Compute instability signal:
+        φ = |loss - EMA(loss)| + spike_weight × max(0, Δloss)
 
-            φ = |loss - EMA(loss)| + spike_weight × max(0, loss - prev_loss)
-
-        Deviation captures sustained divergence from trend.
-        Spike captures sudden jumps (noisy batches, data corruption).
+        Deviation: sustained divergence from trend.
+        Spike: sudden jumps (noisy batch, corruption).
         """
-        s = self.state
-
-        # Update loss EMA
         if self.global_step == 1:
-            s.loss_ema = loss
-            s.prev_loss = loss
+            self.loss_ema = loss
+            self.prev_loss = loss
 
-        s.loss_ema = (1 - self.ema_alpha) * s.loss_ema + self.ema_alpha * loss
-        s.loss_history.append(loss)
+        self.loss_ema = (1 - self.ema_alpha) * self.loss_ema + self.ema_alpha * loss
 
-        # Deviation from trend
-        deviation = abs(loss - s.loss_ema)
-
-        # Spike detection
-        spike = max(0.0, loss - s.prev_loss)
-
-        # Combined signal
+        deviation = abs(loss - self.loss_ema)
+        spike = max(0.0, loss - self.prev_loss)
         phi = deviation + self.spike_weight * spike
-
-        # Normalize to [0, 1]
-        phi_normalized = self._normalize_phi(phi)
 
         return PhiSnapshot(
             step=self.global_step,
             loss=loss,
-            loss_ema=s.loss_ema,
+            loss_ema=self.loss_ema,
             deviation=deviation,
             spike=spike,
             phi=phi,
-            phi_normalized=phi_normalized,
         )
-
-    def _normalize_phi(self, phi_raw: float) -> float:
-        """Normalize φ to [0, 1] via running z-score."""
-        history = self.state.phi_history
-        if len(history) < 10:
-            return 0.5
-
-        values = list(history)
-        mu = sum(values) / len(values)
-        sigma = math.sqrt(sum((x - mu) ** 2 for x in values) / len(values))
-
-        if sigma < 1e-8:
-            return 0.5
-
-        z = (phi_raw - mu) / sigma
-        z_clamped = max(-3.0, min(3.0, z))
-        return (z_clamped + 3.0) / 6.0
 
     # ── State machine ───────────────────────────────────────────
 
-    def _evaluate_transition(self, phi_snap: PhiSnapshot) -> Optional[LRTransition]:
-        """
-        Orbital state machine with hysteresis.
+    def _evaluate(self, phi_snap: PhiSnapshot):
+        """FSM evaluation with adaptive thresholds and hysteresis."""
+        if self.steps_in_state < self.stable_window:
+            return
 
-        Transitions:
-            BASE → LOW:   φ > stress_threshold   (instability detected)
-            LOW  → BASE:  φ < stress_threshold   (recovery)
-            BASE → HIGH:  φ < recovery_threshold (sustained stability)
-            HIGH → BASE:  φ > recovery_threshold (stability lost)
+        if len(self.phi_history) < 10:
+            return
 
-        No skip transitions: HIGH ↔ BASE ↔ LOW
-        """
-        s = self.state
-
-        if s.steps_in_state < self.hysteresis_steps:
-            return None
-
-        if len(s.phi_history) < 20:
-            return None
-
-        # Adaptive thresholds from running statistics
-        values = list(s.phi_history)
+        # Adaptive thresholds
+        values = list(self.phi_history)
         mu = sum(values) / len(values)
         sigma = math.sqrt(sum((x - mu) ** 2 for x in values) / len(values))
 
-        stress_threshold = mu + self.stress_k * sigma
-        recovery_threshold = mu - self.recovery_k * sigma
+        stress_thresh = mu + self.stress_k * sigma
+        recovery_thresh = mu - self.recovery_k * sigma
 
         phi = phi_snap.phi
-        old_state = s.current_lr_state
-        new_state = old_state
-        trigger = ""
+        old = self.current_state
+        new = old
 
-        # ── Upward stress (toward LOW / protective) ─────────────
-        if old_state == LRState.BASE and phi > stress_threshold:
-            new_state = LRState.LOW
-            trigger = "stress"
+        # ── Toward LOW (stress) ─────────────────────────────────
+        if old == OrbitalState.BASE and phi > stress_thresh:
+            new = OrbitalState.LOW
 
-        elif old_state == LRState.HIGH and phi > recovery_threshold:
-            new_state = LRState.BASE
-            trigger = "stress"
+        elif old == OrbitalState.HIGH and phi > recovery_thresh:
+            new = OrbitalState.BASE
 
-        # ── Downward recovery (toward HIGH / aggressive) ────────
-        elif old_state == LRState.LOW and phi < stress_threshold:
-            new_state = LRState.BASE
-            trigger = "recovery"
+        # ── Toward HIGH (recovery) ──────────────────────────────
+        elif old == OrbitalState.LOW and phi < stress_thresh:
+            new = OrbitalState.BASE
 
-        elif old_state == LRState.BASE and phi < recovery_threshold:
-            new_state = LRState.HIGH
-            trigger = "recovery"
+        elif old == OrbitalState.BASE and phi < recovery_thresh:
+            new = OrbitalState.HIGH
 
-        if new_state == old_state:
-            return None
+        if new != old:
+            self._apply_transition(old, new, phi)
 
-        return self._apply_transition(old_state, new_state, phi_snap.phi, trigger)
+    def _apply_transition(self, old: OrbitalState, new: OrbitalState, phi: float):
+        """Execute state change: update rank, LR, and manage snapshots."""
+        old_rank = self.current_rank
+        old_lr = self.current_lr
+        new_rank, new_lr = self._state_config[new]
 
-    def _apply_transition(
-        self,
-        old_state: LRState,
-        new_state: LRState,
-        phi: float,
-        trigger: str,
-    ) -> LRTransition:
-        """Execute a state transition with side effects."""
-        s = self.state
-        old_lr = s.current_lr
-        new_lr = self.state_lr[new_state]
+        snapshot_saved = False
+        snapshot_restored = False
 
-        # ── Entering LOW (stress): save weight snapshot ─────────
-        if new_state == LRState.LOW and self.snapshot_on_stress:
+        # ── Entering LOW: save weight snapshot ──────────────────
+        if new == OrbitalState.LOW and self.snapshot_on_stress:
             if self._adapters is not None:
-                s.weight_snapshot = self._save_snapshot()
+                self.weight_snapshot = self._save_snapshot()
+                snapshot_saved = True
 
-        # ── Leaving LOW (recovery): evaluate rollback ───────────
-        if old_state == LRState.LOW and s.weight_snapshot is not None:
-            if self._adapters is not None:
-                if self._should_restore(s.weight_snapshot):
-                    self._restore_snapshot(s.weight_snapshot)
-            s.weight_snapshot = None
+        # ── Leaving LOW: evaluate rollback ──────────────────────
+        if old == OrbitalState.LOW and self.weight_snapshot is not None:
+            if self._adapters is not None and self._should_restore():
+                self._restore_snapshot()
+                snapshot_restored = True
+            self.weight_snapshot = None
 
-        # ── Apply new LR ────────────────────────────────────────
-        self._set_lr(new_lr)
-        s.current_lr = new_lr
-        s.current_lr_state = new_state
-        s.steps_in_state = 0
+        # ── Apply rank + LR ─────────────────────────────────────
+        self.current_state = new
+        self.current_rank = new_rank
+        self.current_lr = new_lr
+        self.steps_in_state = 0
 
-        return LRTransition(
+        if self.optimizer is not None:
+            self._apply_lr(new_lr)
+
+        self.transition_log.append(Transition(
             step=self.global_step,
-            old_state=old_state,
-            new_state=new_state,
+            old_state=old,
+            new_state=new,
+            old_rank=old_rank,
+            new_rank=new_rank,
             old_lr=old_lr,
             new_lr=new_lr,
             phi=phi,
-            trigger=trigger,
-        )
+            trigger="stress" if new.value > old.value else "recovery",
+            snapshot_saved=snapshot_saved,
+            snapshot_restored=snapshot_restored,
+        ))
 
-    # ── LR application ──────────────────────────────────────────
-
-    def _set_lr(self, lr: float):
-        """Apply learning rate to all parameter groups."""
+    def _apply_lr(self, lr: float):
+        """Set LR on all optimizer param groups."""
         for group in self.optimizer.param_groups:
             group["lr"] = lr
 
-    # ── Weight snapshot (Mirror mechanism) ──────────────────────
+    # ── Weight snapshot (Mirror) ────────────────────────────────
 
     def _save_snapshot(self) -> dict:
-        """Save current LoRA weights before entering protective mode."""
-        snapshot = {}
+        snap = {}
         for name, adapter in self._adapters.items():
-            snapshot[name] = {
+            snap[name] = {
                 "lora_A": adapter.lora_A.data.clone(),
                 "lora_B": adapter.lora_B.data.clone(),
             }
-        snapshot["_step"] = self.global_step
-        return snapshot
+        snap["_step"] = self.global_step
+        return snap
 
-    def _should_restore(self, snapshot: dict) -> bool:
-        """
-        Decide whether to restore pre-stress weights.
+    def _should_restore(self) -> bool:
+        """Restore if weights drifted < threshold (transient noise)."""
+        if self.weight_snapshot is None or self._adapters is None:
+            return False
 
-        If weights barely moved during LOW state (< threshold relative drift),
-        the stress was transient noise → restore stable weights.
-        If weights moved significantly, the stress was real → keep new weights.
-        """
         total_drift = 0.0
         total_baseline = 0.0
 
         for name, adapter in self._adapters.items():
-            if name not in snapshot:
+            if name not in self.weight_snapshot:
                 continue
-            snap = snapshot[name]
-            drift_A = (adapter.lora_A.data - snap["lora_A"]).norm().item()
-            drift_B = (adapter.lora_B.data - snap["lora_B"]).norm().item()
-            base_A = snap["lora_A"].norm().item()
-            base_B = snap["lora_B"].norm().item()
-
-            total_drift += drift_A + drift_B
-            total_baseline += base_A + base_B
+            s = self.weight_snapshot[name]
+            total_drift += (adapter.lora_A.data - s["lora_A"]).norm().item()
+            total_drift += (adapter.lora_B.data - s["lora_B"]).norm().item()
+            total_baseline += s["lora_A"].norm().item()
+            total_baseline += s["lora_B"].norm().item()
 
         if total_baseline < 1e-8:
             return False
 
-        relative_drift = total_drift / total_baseline
-        return relative_drift < self.snapshot_drift_threshold
+        return (total_drift / total_baseline) < self.drift_threshold
 
-    def _restore_snapshot(self, snapshot: dict):
-        """Restore pre-stress weights to all adapters."""
+    def _restore_snapshot(self):
         for name, adapter in self._adapters.items():
-            if name not in snapshot:
+            if name not in self.weight_snapshot:
                 continue
-            snap = snapshot[name]
-            adapter.lora_A.data.copy_(snap["lora_A"])
-            adapter.lora_B.data.copy_(snap["lora_B"])
+            s = self.weight_snapshot[name]
+            adapter.lora_A.data.copy_(s["lora_A"])
+            adapter.lora_B.data.copy_(s["lora_B"])
 
 
 # ── Convenience setup ───────────────────────────────────────────
@@ -556,68 +454,50 @@ class OrbitalController:
 
 def setup_unified_lora(
     model: nn.Module,
-    optimizer: torch.optim.Optimizer = None,
     target_modules: list = None,
     max_rank: int = 16,
     alpha: float = 16.0,
     base_lr: float = 5e-4,
     **controller_kwargs,
-) -> Tuple[Dict[str, NestedLoRALinear], OrbitalController]:
+) -> Tuple[Dict[str, NestedLoRALinear], OrbitalController, torch.optim.Optimizer]:
     """
-    One-call setup: inject NestedLoRA + create OrbitalController.
+    One-call setup: NestedLoRA + OrbitalController + Optimizer.
 
-    This creates a full ΔW control system:
-        - NestedLoRA: controls ΔW subspace (via rank)
-        - OrbitalController: controls ΔW magnitude (via LR)
-
-    Args:
-        model: Base model to adapt.
-        optimizer: Torch optimizer. If None, creates AdamW with base_lr.
-        target_modules: Layer name patterns (default: ["q_proj", "v_proj"]).
-        max_rank: Maximum rank per adapter.
-        alpha: LoRA alpha.
-        base_lr: Base learning rate for the controller.
-        **controller_kwargs: Passed to OrbitalController.
+    Creates a full ΔW control system:
+        rank → ΔW subspace (direction)
+        LR → ΔW magnitude (amplitude)
 
     Returns:
-        (adapters_dict, controller)
+        (adapters, controller, optimizer)
 
     Usage:
-        adapters, ctrl = setup_unified_lora(model)
-        # optimizer is created internally — access via ctrl.optimizer
+        adapters, ctrl, opt = setup_unified_lora(model)
         for batch in dataloader:
             loss = model(**batch).loss
             loss.backward()
-            ctrl.step(loss=loss.item())
-            ctrl.optimizer.step()
-            ctrl.optimizer.zero_grad()
+            rank = ctrl.step(loss.item())
+            set_rank(model, rank)
+            opt.step()
+            opt.zero_grad()
     """
     if target_modules is None:
         target_modules = ["q_proj", "v_proj"]
 
-    # Freeze base model
+    # Freeze base
     for p in model.parameters():
         p.requires_grad = False
 
     # Inject NestedLoRA
-    adapters = inject_nested_lora(
-        model, target_modules, max_rank=max_rank, alpha=alpha
-    )
+    adapters = inject_nested_lora(model, target_modules, max_rank=max_rank, alpha=alpha)
 
-    # Create optimizer if not provided
-    if optimizer is None:
-        from nested_lora import get_lora_params
-        lora_params = list(get_lora_params(model))
-        optimizer = torch.optim.AdamW(lora_params, lr=base_lr)
+    # Optimizer over LoRA params only
+    from nested_lora import get_lora_params
+    lora_params = list(get_lora_params(model))
+    optimizer = torch.optim.AdamW(lora_params, lr=base_lr)
 
-    # Create controller
-    controller = OrbitalController(
-        optimizer=optimizer,
-        base_lr=base_lr,
-        **controller_kwargs,
-    )
+    # Controller with dual control
+    ctrl = OrbitalController(base_lr=base_lr, **controller_kwargs)
+    ctrl.link_optimizer(optimizer)
+    ctrl.link_adapters(adapters)
 
-    # Link adapters for snapshot mechanism
-    controller._adapters = adapters
-
-    return adapters, controller
+    return adapters, ctrl, optimizer
