@@ -5,53 +5,83 @@ NestedLoRA — Execution Engine (Weight-Control Aware)
 LoRA adapter where rank is controlled by matrix slicing, not by
 swapping separate adapter pairs.
 
-Architecture:
-    A single (max_rank × d) matrix pair is allocated once.
-    Active rank is a *slice* of that matrix: r4 ⊂ r8 ⊂ r16.
-    Changing rank = changing the slice boundary. Zero re-allocation,
-    zero cold-start, because lower-rank parameters are always a
-    subset of higher-rank ones.
+Architecture
+------------
+A single pair of matrices is allocated once:
 
-    Forward:  h = x @ W + (x @ A[:, :r] @ B[:r, :]) * (α / r)
+    A ∈ ℝ^(d × R_max)
+    B ∈ ℝ^(R_max × d)
 
-------------------------------------------------------------------
+Active rank r is a slice of these matrices:
 
-⚠️ IMPORTANT: Weight Control Interpretation
+    ΔW = A[:, :r] @ B[:r, :]
 
-NestedLoRA is not only a memory-efficient implementation.
+with:
 
-It introduces a direct control mechanism over weight updates (ΔW):
+    r_small ⊂ r_medium ⊂ r_large
+
+Changing rank = moving the slice boundary.
+
+Properties:
+- No re-allocation
+- No cold-start
+- Strict parameter nesting across ranks
+
+Forward:
+    h = x @ W + (x @ A[:, :r] @ B[:r, :]) * (α / r)
+
+--------------------------------------------------
+
+Weight Control Interpretation
+-----------------------------
+
+NestedLoRA is not only a memory optimization.
+
+It provides direct control over the update matrix:
 
     ΔW = A_r @ B_r
 
-Where r (active_rank) defines the dimensionality of the update space.
+where r defines the dimensionality of the update subspace.
 
-This means:
+Implications:
 
-- Lower rank → constrained ΔW (limited update subspace)
-- Higher rank → expanded ΔW (higher flexibility, higher risk)
+- Low rank → constrained ΔW (restricted update space)
+- High rank → expanded ΔW (higher expressivity, higher variance)
 
-Rank is therefore not just a capacity parameter —
-it is a control knob over weight dynamics.
+Therefore:
+
+    Rank ≠ capacity only
+    Rank = control over ΔW
+
+--------------------------------------------------
+
+Control Perspective
+-------------------
+
+In a dynamic setting, rank becomes a control variable:
+
+    controller → sets r → defines ΔW space → shapes weight dynamics
 
 This enables:
 
 - Progressive expansion of learning capacity without reset
-- Smooth adaptation under changing training conditions
-- Direct regulation of weight drift and instability
+- Smooth transitions between regimes (stable ↔ unstable)
+- Direct modulation of weight drift
 
-In combination with a controller (e.g. Orbital LR / FSM),
-NestedLoRA becomes a component of a full weight control system:
+When combined with a controller (e.g. FSM / Orbital LR),
+NestedLoRA becomes part of a closed-loop system:
 
-    controller → adjusts rank → modulates ΔW → stabilizes training
+    loss dynamics → controller → rank → ΔW → training stability
 
-------------------------------------------------------------------
+--------------------------------------------------
 
-Key Insight:
+Key Insight
+-----------
 
-    Rank is not capacity — it is control over ΔW.
+    Rank is not just capacity.
+    Rank is a control mechanism over weight updates.
 
-------------------------------------------------------------------
+--------------------------------------------------
 
 Author: Simona Vargiu
 License: Apache 2.0
