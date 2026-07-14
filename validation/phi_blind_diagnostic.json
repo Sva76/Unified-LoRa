@@ -1,0 +1,111 @@
+{
+  "plan": [
+    [
+      0,
+      5235,
+      0.0001
+    ],
+    [
+      1,
+      3659,
+      0.0001
+    ],
+    [
+      2,
+      9381,
+      0.003
+    ],
+    [
+      3,
+      9610,
+      0.003
+    ],
+    [
+      4,
+      3932,
+      0.003
+    ],
+    [
+      5,
+      1323,
+      0.0001
+    ],
+    [
+      6,
+      4707,
+      0.0001
+    ],
+    [
+      7,
+      7368,
+      0.0001
+    ],
+    [
+      8,
+      8033,
+      0.0001
+    ],
+    [
+      9,
+      3445,
+      0.001
+    ],
+    [
+      10,
+      4121,
+      0.003
+    ],
+    [
+      11,
+      5844,
+      0.001
+    ]
+  ],
+  "phi": {
+    "0": 0.0072,
+    "1": 0.0176,
+    "2": 3.4076,
+    "3": 7.7003,
+    "4": 2.5433,
+    "5": 0.01,
+    "6": 0.0129,
+    "7": 0.022,
+    "8": 0.0141,
+    "9": 0.0435,
+    "10": 3.4473,
+    "11": 1.5021
+  },
+  "predictions": {
+    "0": "healthy",
+    "1": "healthy",
+    "2": "stressed",
+    "3": "stressed",
+    "4": "stressed",
+    "5": "healthy",
+    "6": "healthy",
+    "7": "healthy",
+    "8": "healthy",
+    "9": "healthy",
+    "10": "stressed",
+    "11": "stressed"
+  },
+  "accuracy": 0.8333333333333334,
+  "confusion": {
+    "healthy": {
+      "healthy": 6,
+      "intermediate": 0,
+      "stressed": 0
+    },
+    "intermediate": {
+      "healthy": 1,
+      "intermediate": 0,
+      "stressed": 1
+    },
+    "stressed": {
+      "healthy": 0,
+      "intermediate": 0,
+      "stressed": 4
+    }
+  },
+  "_note": "Reconstructed from the printed run output; the run plan is deterministic from MASTER_SEED=2026 and was verified to match the revealed labels."
+}
