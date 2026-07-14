@@ -1,35 +1,10 @@
-# 📬 Contact
+# Contact
 
-## For Commercial & Partnership Inquiries
+Simona Vargiu — Independent Researcher
 
-Unified-LoRA is patent-pending technology for adaptive weight control during LLM fine-tuning.
+For questions about the φ signal, the validation bundle, or collaboration
+on training observability: open an issue on this repository or reach out
+via the contact details in my profile.
 
-If you are interested in:
-- Commercial licensing
-- Research partnerships
-- Investment opportunities
-- Custom development
-
-Please contact the author directly:
-
-**Simona Vargiu**
-📧 simona.vargiu.malta@gmail.com
-
----
-
-## For Technical Questions & Bug Reports
-
-Please use GitHub Issues: [github.com/Sva76/Unified-LoRa/issues](https://github.com/Sva76/Unified-LoRa/issues)
-
----
-
-## Citation
-
-If you use Unified-LoRA in your research, please cite:
-
-@software{unified_lora_2025,
-  author = {Simona Vargiu},
-  title = {Unified-LoRA: Synaptic Plasticity Controller for Adaptive LoRA Fine-Tuning},
-  year = {2025},
-  url = {https://github.com/Sva76/Unified-LoRa}
-}
+Related work: Vincolo (training stability constraints), φ observability
+validation on Qwen3-8B via Tinker (see `validation/`).
