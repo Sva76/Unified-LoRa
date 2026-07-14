@@ -1,0 +1,50 @@
+[
+  {
+    "phi_mean": 0.0136,
+    "phi_max": 0.4588,
+    "loss_std": 1.9373,
+    "nan_count": 0,
+    "seed": 3,
+    "arm": "healthy"
+  },
+  {
+    "phi_mean": 4.6102,
+    "phi_max": 15.1686,
+    "loss_std": 11.0044,
+    "nan_count": 0,
+    "seed": 3,
+    "arm": "stressed"
+  },
+  {
+    "phi_mean": 0.0096,
+    "phi_max": 0.2634,
+    "loss_std": 1.7579,
+    "nan_count": 0,
+    "seed": 7,
+    "arm": "healthy"
+  },
+  {
+    "phi_mean": 4.1101,
+    "phi_max": 16.5551,
+    "loss_std": 11.9071,
+    "nan_count": 0,
+    "seed": 7,
+    "arm": "stressed"
+  },
+  {
+    "phi_mean": 0.0107,
+    "phi_max": 0.4272,
+    "loss_std": 1.941,
+    "nan_count": 0,
+    "seed": 11,
+    "arm": "healthy"
+  },
+  {
+    "phi_mean": 3.6893,
+    "phi_max": 16.1773,
+    "loss_std": 10.392,
+    "nan_count": 0,
+    "seed": 11,
+    "arm": "stressed"
+  }
+]
