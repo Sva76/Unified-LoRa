@@ -141,7 +141,7 @@ Listed because they materially limit every number in §4.
    At one representative shock step the trace records 4.52 where the
    controller saw 17.8. Consequently, offline reanalysis of the published
    traces cannot reproduce the controller's decisions — including
-   `validation/Test12 reanalyze.py`, whose `μ + k·σ` rule looks identical to
+   `validation/test12_reanalyze.py`, whose `μ + k·σ` rule looks identical to
    the FSM's but runs on a different quantity. Fix: expose `phi_raw`
    alongside `phi_ema`.
 3. **`PhiMonitor` carries a dead gradient term** (`+ 0.01 * grad_norm`). Inert
