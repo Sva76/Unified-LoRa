@@ -1,0 +1,128 @@
+{
+  "shock_arms": [
+    {
+      "label": "shock sw=30 k=1.5",
+      "with_shock": true,
+      "stable_window": 30,
+      "stress_k": 1.5,
+      "phi_window": 3.3757718999999993,
+      "states": [
+        "BASE",
+        "HIGH"
+      ],
+      "low_steps": 0,
+      "first_low": null,
+      "latency": null,
+      "transitions": 4,
+      "rank_min": 8,
+      "rank_max": 16
+    },
+    {
+      "label": "shock sw=30 k=0.5",
+      "with_shock": true,
+      "stable_window": 30,
+      "stress_k": 0.5,
+      "phi_window": 3.3757718999999993,
+      "states": [
+        "BASE",
+        "HIGH"
+      ],
+      "low_steps": 0,
+      "first_low": null,
+      "latency": null,
+      "transitions": 4,
+      "rank_min": 8,
+      "rank_max": 16
+    },
+    {
+      "label": "shock sw=10 k=1.5",
+      "with_shock": true,
+      "stable_window": 10,
+      "stress_k": 1.5,
+      "phi_window": 3.8919734000000004,
+      "states": [
+        "BASE",
+        "HIGH",
+        "LOW"
+      ],
+      "low_steps": 10,
+      "first_low": 84,
+      "latency": 4,
+      "transitions": 8,
+      "rank_min": 4,
+      "rank_max": 16
+    },
+    {
+      "label": "shock sw=10 k=0.5",
+      "with_shock": true,
+      "stable_window": 10,
+      "stress_k": 0.5,
+      "phi_window": 3.8919734000000004,
+      "states": [
+        "BASE",
+        "HIGH",
+        "LOW"
+      ],
+      "low_steps": 10,
+      "first_low": 84,
+      "latency": 4,
+      "transitions": 8,
+      "rank_min": 4,
+      "rank_max": 16
+    },
+    {
+      "label": "shock sw=5 k=1.5",
+      "with_shock": true,
+      "stable_window": 5,
+      "stress_k": 1.5,
+      "phi_window": 3.751269550000001,
+      "states": [
+        "BASE",
+        "HIGH",
+        "LOW"
+      ],
+      "low_steps": 5,
+      "first_low": 84,
+      "latency": 4,
+      "transitions": 6,
+      "rank_min": 4,
+      "rank_max": 16
+    },
+    {
+      "label": "shock sw=5 k=0.5",
+      "with_shock": true,
+      "stable_window": 5,
+      "stress_k": 0.5,
+      "phi_window": 3.751269550000001,
+      "states": [
+        "BASE",
+        "HIGH",
+        "LOW"
+      ],
+      "low_steps": 5,
+      "first_low": 84,
+      "latency": 4,
+      "transitions": 6,
+      "rank_min": 4,
+      "rank_max": 16
+    }
+  ],
+  "control": {
+    "label": "controllo sw=5 k=0.5",
+    "with_shock": false,
+    "stable_window": 5,
+    "stress_k": 0.5,
+    "phi_window": 1.76015305,
+    "states": [
+      "BASE",
+      "HIGH",
+      "LOW"
+    ],
+    "low_steps": 5,
+    "first_low": 109,
+    "latency": 29,
+    "transitions": 18,
+    "rank_min": 4,
+    "rank_max": 16
+  }
+}
