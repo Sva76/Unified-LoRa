@@ -1,9 +1,13 @@
 # Unified-LoRA → the φ signal
 
-**Status (July 2026).** The original controller hypothesis was falsified by
+**Status (August 2026).** The original controller hypothesis was falsified by
 its own test campaign. What survives is a loss-only training-stress signal and
 a documented failure mode of adaptive controllers that read what they modify.
-Evidence, raw logs and reanalysis scripts are in [`validation/`](validation/).
+A new ReViSQL/RLVR validation further shows that the original one-sided φ does
+**not** transfer as a reliable predictor of future PPO instability, and that a
+symmetric `EMA(|Δloss|)` repair does not recover convincing predictive value in
+the tested 50-step trajectory. Evidence, raw logs and reanalysis notes are in
+[`validation/`](validation/).
 
 This repository is a research artifact, not a library. Nothing here is
 recommended for production fine-tuning.
@@ -49,7 +53,7 @@ apart. They are not interchangeable and their thresholds do not transfer.
 `validation/phi_lead_time_log.json` reproduce the pure loss-derived EMA to
 within 6e-14. (`PhiMonitor.update` accepts an optional `grad_norm` term
 weighted 0.01; Tinker did not expose `grad_norm`, so the term was inert
-throughout. It should be removed — see §5.)
+throughout. It should be removed — see §6.)
 
 ---
 
@@ -79,13 +83,113 @@ note before execution and has not yet been run.
 SPAM's Gradient Spike Score). The signal itself is a one-sided variant of a
 known family. The only part that is plausibly distinctive is the operating
 constraint: it needs nothing but the loss stream, so it runs behind managed
-fine-tuning APIs where gradients and internals are not exposed. No ablation
-against a rolling standard deviation or a robust MAD baseline has been run
-yet, so the practical value of φ_jump over those is **untested**.
+fine-tuning APIs where gradients and internals are not exposed.
+
+The earlier version of this README stated that comparison against rolling STD
+and robust MAD was untested. That is no longer fully true: the August 2026
+ReViSQL/PPO diagnostic below includes those loss-domain baselines. In that
+setting, neither φ nor the simple baselines established reliable prediction of
+future PPO-KL excursions.
 
 ---
 
-## 4. What the local controller experiments showed
+## 4. ReViSQL / RLVR: φ does not transfer as a reliable PPO predictor
+
+A separate August 2026 experiment tested `φ_jump` passively in a real RLVR/PPO
+workload: ReViSQL text-to-SQL training on `Qwen/Qwen3-8B` through Tinker.
+The purpose was deliberately different from Tests 5–7: instead of asking
+whether φ detects an induced/current loss event, this experiment asked whether
+a loss-only signal can **anticipate future PPO instability**.
+
+### Setup
+
+- 50 PPO training steps / 100 examples
+- LoRA rank 16, learning rate `1e-4`
+- group size 2, batch size 2
+- φ was passive: no LR/rank/control intervention
+- Tinker `loss:sum` was normalised by action tokens to obtain `loss_per_token`
+- comparisons used the same loss stream: `|Δloss|`, rolling STD(5), rolling
+  MAD(5), causal z-score and PPO-KL
+- horizons inspected: `t+1`, `t+2`, `t+5`
+- first 60% of the trajectory used for threshold calibration; final 40% used
+  for chronological evaluation
+
+### Result
+
+The original one-sided
+
+```text
+φ_jump(t) = 0.8 φ_jump(t-1) + 0.2 max(0, Δloss(t))
+```
+
+did **not** reliably anticipate important future PPO-KL excursions. In the
+late evaluation region φ decreased while several large KL values appeared:
+
+| step | φ_jump | PPO-KL |
+|---:|---:|---:|
+| 43 | 0.01649 | 0.62240 |
+| 44 | 0.01319 | 1.25181 |
+| 45 | 0.01134 | 1.05359 |
+| 48 | 0.00581 | 1.11044 |
+
+The failure has a plausible structural component: PPO loss is signed, while
+`max(0, Δloss)` is blind to negative loss changes. Step 48, for example, has
+`loss_per_token ≈ -0.07561`, `|Δloss| ≈ 0.07561`, high `PPO-KL ≈ 1.11044`,
+but low `φ_jump ≈ 0.00581`. This is evidence of one-sided blindness; because
+loss and KL here are simultaneous, it is not itself evidence of prediction.
+
+### Symmetric repair also fails to establish predictive value
+
+The natural offline follow-up was
+
+```text
+φ_abs(t) = 0.8 φ_abs(t-1) + 0.2 |Δloss(t)|
+```
+
+which uses both signs of PPO loss change. It did not recover convincing
+predictive performance. Exploratory ROC-AUC values for future KL-spike ranking
+on the chronological evaluation segment were:
+
+| horizon | φ_jump | φ_abs | STD(5) | |Δloss| | |z-score| |
+|---|---:|---:|---:|---:|---:|
+| t+1 | 0.458 | 0.375 | 0.333 | 0.000 | 0.146 |
+| t+2 | 0.578 | 0.533 | 0.411 | 0.333 | 0.222 |
+| t+5 | 0.556 | 0.500 | 0.486 | 0.125 | 0.444 |
+
+These are **exploratory numbers**, not population-performance estimates: the
+held-out segment is small and contains few KL-spike events. They provide no
+convincing evidence that φ_abs adds predictive value over simple loss-domain
+statistics.
+
+With a φ_abs threshold calibrated only on the first 60% (P90 ≈ 0.054), the
+final 40% produced no φ_abs alarms while containing three KL-spike events
+under the corresponding calibration rule: 0 true positives and 3 false
+negatives in this small evaluation segment.
+
+Reward prediction was likewise inconclusive/negative: φ_abs exploratory AUC
+was approximately 0.466 (`t+1`), 0.292 (`t+2`) and 0.600 (`t+5`); the last
+number is based on too few points/events to support a positive claim.
+
+### Verdict
+
+The experiment rejects the **setting-specific transfer claim** that
+`EMA(max(0, Δloss))` is a generally useful predictor when applied directly to
+signed PPO loss in ReViSQL/RLVR. The obvious symmetric repair
+`EMA(|Δloss|)` is also not supported as a useful predictor by this run.
+
+This does **not** contradict the earlier Tests 5–7 result: φ_jump remains an
+observed near-instantaneous detector in those specific experiments. Detection
+in one regime and prediction in a different PPO regime are different claims.
+Nor does one 50-step trajectory prove that loss-only prediction is impossible
+in PPO. It shows that these two φ formulations did not provide convincing
+future-KL prediction here.
+
+Full protocol, limitations and interpretation:
+[`validation/revisql_ppo_phi_validation.md`](validation/revisql_ppo_phi_validation.md).
+
+---
+
+## 5. What the local controller experiments showed
 
 Tests 8–14, on Qwen2.5-0.5B-Instruct, single T4, seed 11 unless stated.
 These runs use φ_dev and the full controller.
@@ -123,9 +227,9 @@ hypothesis about where this fits, not a claim of priority.
 
 ---
 
-## 5. Known defects and open confounds
+## 6. Known defects and open confounds
 
-Listed because they materially limit every number in §4.
+Listed because they materially limit every number in §5.
 
 1. **The task saturates.** Tests 8–14 train on 20 fixed prompt/target pairs
    for 200 steps — ten epochs on the same material. Control-arm loss falls
@@ -151,10 +255,15 @@ Listed because they materially limit every number in §4.
    replicated across seeds.
 5. **One model family, one task type, one shock type**, fixed shock onset at
    step 80. Latency figures will not survive randomised onset.
+6. **ReViSQL/PPO statistical scope.** The new PPO result is one 50-step
+   trajectory, one model/workload, two databases and few held-out KL-spike
+   events. It rejects a strong transfer claim for the tested formulations; it
+   does not establish a universal impossibility result for loss-only PPO
+   monitoring.
 
 ---
 
-## 6. Quick start
+## 7. Quick start
 
 φ_jump needs only the loss stream:
 
@@ -178,8 +287,8 @@ for batch in dataloader:
 ```
 
 The 0.10 threshold was calibrated on Qwen3-8B via Tinker with this exact
-formula. It does not transfer to φ_dev, to other models, or to other loss
-scales without recalibration.
+formula. It does not transfer to φ_dev, to ReViSQL/PPO, to other models, or to
+other loss scales without recalibration.
 
 The controller remains available as a research artifact:
 
@@ -196,7 +305,7 @@ adapters, ctrl, opt = setup_unified_lora(model)   # returns three values
 
 ---
 
-## 7. If you need adaptive-rank fine-tuning
+## 8. If you need adaptive-rank fine-tuning
 
 Use AdaLoRA. That is the finding, not a disclaimer.
 
