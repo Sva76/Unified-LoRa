@@ -1,0 +1,40 @@
+{
+  "run_id": "qwen3_8b_ppo_seed101",
+  "seed": 101,
+  "status": "completed_raw_recoverable",
+  "records": 300,
+  "step_range": {
+    "start": 0,
+    "end": 299
+  },
+  "raw_schema": "revisql_phi_raw_v1",
+  "raw_sha256": "a80deb0dbac38b2d3b023206e2ef38081dad777cd554fa9b3bf81d67f49ab78c",
+  "controller_active": false,
+  "sensor_actuator_active": false,
+  "phi_formula": "phi_t = 0.8 * phi_(t-1) + 0.2 * max(0, delta_loss_t)",
+  "input_signal": "loss_per_token",
+  "target": "future_ppo_kl",
+  "analysis_type": "preliminary_single_seed",
+  "kl_spike_label_for_this_preliminary_readout": "within-run PPO-KL 90th percentile",
+  "phi_jump_auroc": {
+    "t_plus_1": 0.47360594795539035,
+    "t_plus_2": 0.41417910447761197,
+    "t_plus_5": 0.42591194968553464
+  },
+  "phi_abs_auroc": {
+    "t_plus_1": 0.4529120198265179,
+    "t_plus_2": 0.44353233830845773,
+    "t_plus_5": 0.42792452830188676
+  },
+  "phi_jump_spearman_future_ppo_kl": {
+    "t_plus_1": -0.023222374357477947,
+    "t_plus_2": -0.07463084527572418,
+    "t_plus_5": -0.0911870015986239
+  },
+  "preregistered_success_threshold": {
+    "auroc_min": 0.70
+  },
+  "result": "not_supported",
+  "interpretation": "No preliminary evidence that phi_jump predicts future PPO-KL in seed 101.",
+  "confirmatory_final_result": false
+}
