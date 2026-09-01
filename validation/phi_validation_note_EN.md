@@ -2,7 +2,30 @@
 
 *Preliminary technical validation note — Simona Vargiu, independent research · July 2026*
 
-*(This is the GitHub-readable version of `phi_validation_note_EN.pdf`; content is identical.)*
+*(This is the GitHub-readable version of `phi_validation_note_EN.pdf`. The PDF preserves the original July 2026 note; the Markdown version now carries the August 2026 addendum below.)*
+
+> **August 2026 addendum — subsequent prediction/transfer test**
+>
+> This note is retained as the record of the original Tests 5–7 campaign. A
+> later, separate experiment tested whether the loss-only φ formulation
+> transfers from near-instantaneous detection to **prediction** in a signed
+> PPO/RLVR setting: ReViSQL text-to-SQL on Qwen3-8B via Tinker.
+>
+> In that 50-step trajectory, the original one-sided
+> `φ_jump = EMA_0.8(max(0, Δloss))` did **not** reliably anticipate future
+> PPO-KL spikes. Because PPO loss is signed, a symmetric follow-up
+> `φ_abs = EMA_0.8(|Δloss|)` was evaluated offline on the same trajectory; it
+> also failed to establish convincing predictive value or an advantage over
+> simple loss-domain baselines. This is a setting-specific negative transfer
+> result, not a universal impossibility result.
+>
+> The addendum does **not** rewrite the historical Tests 5–7 verdict below:
+> the original evidence still supports φ_jump as a preliminary,
+> near-instantaneous **detector** in that specific campaign. Detection and
+> future prediction are different claims.
+>
+> Full subsequent analysis:
+> [`revisql_ppo_phi_validation.md`](revisql_ppo_phi_validation.md).
 
 ## 1. Scope and surviving claim
 
@@ -102,7 +125,9 @@ confound.
 A corrected protocol (Test 7 v3) replaces the recycled pairs with a
 non-memorizable stream (novel pairs generated at every step), keeping the
 loss informative throughout the run. This amendment is declared here before
-execution.
+execution. As of the August 2026 addendum, that exact v3 protocol has still
+not been executed. The later ReViSQL/PPO experiment is an independent
+prediction/transfer test, not a substitute execution of Test 7 v3.
 
 ![Representative Test 7 traces: loss saturates at zero, collapse is an abrupt cliff, φ fires at the cliff; healthy arm flat](fig_test7_runs.png)
 
@@ -119,15 +144,17 @@ stream alone, it can monitor fine-tuning behind managed APIs where gradients
 and internals are not exposed — a setting of increasing practical relevance
 for governance and observability of third-party training.
 
-Open questions, in order of value: (1) predictive lead time on a
-non-saturating task (Test 7 v3, protocol above); (2) whether precursors
-absent from the loss exist in richer signals — loss variance and
-autocorrelation in rolling windows (computable from the same logs), gradient
-norms, weight drift — which requires trainer access and connects to the full
-controller variant of φ; (3) generalization to other instability causes
-(small batches, noisy data, long sequences), other model families, and
-richer tasks; (4) operational utility: does surfacing φ lead a human
-operator to better decisions during training?
+The August 2026 ReViSQL result narrows the open questions. The exact Test 7 v3
+lead-time protocol remains unexecuted, but a separate non-saturating PPO/RLVR
+transfer test has now provided negative evidence for future-KL prediction by
+both φ_jump and the symmetric φ_abs variant. The highest-value remaining
+questions are therefore: (1) independent replication across longer PPO
+trajectories and multiple seeds before drawing broader conclusions; (2)
+whether precursors absent from these simple loss dynamics exist in richer
+signals — loss variance/autocorrelation, gradients, weight drift or policy
+statistics; (3) generalization across instability causes, model families and
+tasks; and (4) whether a loss-only detector has operational value to a human
+operator even when it is not predictive.
 
 ## 6. Reproducibility bundle
 
@@ -136,8 +163,9 @@ Included in this folder: (a) raw per-step traces —
 (Test 6), `phi_lead_time_log.json` (Test 7, full loss/φ/LR per step for all
 14 runs); (b) executable scripts with pre-registered thresholds and verdict
 logic in-code; (c) the reanalysis script used to audit Test 7 post-hoc
-without re-running. All Tinker experiments require only an API key;
-detection logic runs offline on the JSON logs.
+without re-running; and (d) the separate August 2026 ReViSQL/PPO analysis in
+`revisql_ppo_phi_validation.md`. All original Campaign A Tinker experiments
+require only an API key; detection logic runs offline on the JSON logs.
 
 ---
 
