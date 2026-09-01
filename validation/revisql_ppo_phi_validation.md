@@ -1,6 +1,6 @@
 # ReViSQL / Tinker — validation of φ in RLVR/PPO
 
-**Status: August 2026.** This note extends the earlier Tinker validation of `φ_jump` to a real RLVR/PPO workload based on ReViSQL. It records a negative result and should be read separately from Tests 5–7: those tests established near-instantaneous detection under their own training regimes; the experiment below asks whether the same loss-only signal transfers to signed PPO loss and whether it predicts future policy instability.
+**Status: September 2026.** This note extends the earlier Tinker validation of `φ_jump` to a real RLVR/PPO workload based on ReViSQL. It records a negative result and should be read separately from Tests 5–7: those tests established near-instantaneous detection under their own training regimes; the experiment below asks whether the same loss-only signal transfers to signed PPO loss and whether it predicts future policy instability.
 
 ## Question
 
@@ -161,3 +161,56 @@ Accordingly, the experiment is sufficient to reject a strong transfer claim for 
 ## Practical consequence
 
 Do not tune β, windows, or thresholds on these same 50 observations merely to recover a positive result. Any materially changed φ formulation should be declared as a new hypothesis and tested on an independent trajectory.
+
+---
+
+## Confirmatory prediction challenge — seed 101
+
+A larger passive run was subsequently executed under the preregistered prediction protocol. This is the **first single-seed result**, not the final multi-seed confirmatory verdict.
+
+### Run integrity
+
+- Run ID: `qwen3_8b_ppo_seed101`
+- Data-order seed: `101`
+- Model: `Qwen/Qwen3-8B`
+- PPO / ReViSQL / Tinker
+- LoRA rank: 16
+- Learning rate: `1e-4`
+- Group size: 2
+- Batch size: 2
+- 300 recorded global steps, exactly `0..299`
+- φ remained passive; no controller, rollback, learning-rate intervention, or rank intervention was active
+- raw schema: `revisql_phi_raw_v1`
+- raw SHA256: `a80deb0dbac38b2d3b023206e2ef38081dad777cd554fa9b3bf81d67f49ab78c`
+
+The ReViSQL training loop reached step 299, reported `progress/done_frac = 1.0`, saved the final checkpoint and printed `Training completed successfully`. The enclosing process then returned `-11`. Because all 300 frozen-schema raw records were already written, this run is retained as `completed_raw_recoverable`; the post-training process termination is documented rather than silently discarded.
+
+### Frozen predictor
+
+The preregistered predictor was left unchanged:
+
+```text
+φ_jump(t) = 0.8 φ_jump(t-1) + 0.2 max(0, Δloss_per_token(t))
+```
+
+The already-declared symmetric comparator was:
+
+```text
+φ_abs(t) = 0.8 φ_abs(t-1) + 0.2 |Δloss_per_token(t)|
+```
+
+For this preliminary single-seed readout, future PPO-KL spike labels use the 90th percentile of PPO-KL within this run. This single-run thresholding is descriptive and does **not** replace the preregistered multi-seed calibration/evaluation procedure.
+
+### Preliminary single-seed result
+
+| horizon | φ_jump AUROC | φ_abs AUROC | Spearman(φ_jump, future PPO-KL) |
+|---|---:|---:|---:|
+| t+1 | 0.474 | 0.453 | -0.023 |
+| t+2 | 0.414 | 0.444 | -0.075 |
+| t+5 | 0.426 | 0.428 | -0.091 |
+
+The preregistered success threshold is `AUROC >= 0.70`. Seed 101 therefore provides **no preliminary evidence of predictive transfer** for `φ_jump`; `φ_abs` is likewise unsupported on this run. The near-zero/slightly negative rank correlations with future PPO-KL point in the same direction.
+
+This result must not be used to tune β, change the sign rule, alter windows, move horizons, or choose a new threshold post hoc. The next scientific step is replication under the already frozen multi-seed protocol and comparison with the other frozen loss-only baselines.
+
+**Current status:** `not_supported` for seed 101; `confirmatory_final_result = false`.
