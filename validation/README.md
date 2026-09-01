@@ -1,26 +1,38 @@
 # validation/ — evidence bundle
 
-Two campaigns live here, using two different signals. Read §1 before comparing
-any numbers across them.
+Three campaigns live here. They answer different questions and use different
+training regimes. Read §1 before comparing numbers across them.
 
-**Start here:** `phi_validation_note_EN.pdf` — technical note on the Tinker
-campaign: supported claims, falsified claims, thresholds, seed protocols,
-baseline comparison, open questions.
+**Start here:**
+
+- `phi_validation_note_EN.pdf` — technical note for the original Tinker
+  φ_jump campaign (Tests 5–7).
+- `phi_contamination_note_EN.md` — sensor–actuator contamination analysis for
+  the local full-controller campaign (Tests 8–14).
+- [`revisql_ppo_phi_validation.md`](revisql_ppo_phi_validation.md) — August
+  2026 ReViSQL/RLVR/PPO transfer test, including the negative predictive result
+  for φ_jump and the symmetric φ_abs follow-up.
+
+The campaigns should not be collapsed into one headline result: Campaign A
+primarily tests **detection**, Campaign B tests a **closed-loop controller and
+sensor–actuator interaction**, and Campaign C tests **prediction/transfer in
+signed PPO loss**.
 
 ---
 
-## 1. Two signals, two scales
+## 1. Signals and regimes
 
-| | **φ_jump** (Tests 5–7) | **φ_dev** (Tests 8–14) |
-|---|---|---|
-| Definition | `EMA_0.8(max(0, Δloss))` | `EMA( abs(loss − EMA(loss)) + 0.5·max(0, Δloss) )` |
-| Typical healthy value | ~0.011 | ~1.9 |
-| Threshold | fixed, 0.10 | adaptive, `μ + k·σ` |
-| Platform | Qwen3-8B via Tinker API | Qwen2.5-0.5B-Instruct, single T4 |
-| Implemented in | `test5–7*.py` (self-contained) | `orbital_controller.py` |
+| | **φ_jump** (Tests 5–7) | **φ_dev** (Tests 8–14) | **φ_jump / φ_abs** (ReViSQL PPO) |
+|---|---|---|---|
+| Definition | `EMA_0.8(max(0, Δloss))` | `EMA(abs(loss − EMA(loss)) + 0.5·max(0, Δloss))` | `φ_jump` plus `φ_abs = EMA_0.8(|Δloss|)` |
+| Typical healthy value | ~0.011 | ~1.9 | domain-specific; old threshold does not transfer |
+| Threshold | fixed, 0.10 | adaptive, `μ + k·σ` | chronological calibration on first 60% for threshold tests |
+| Platform | Qwen3-8B via Tinker API | Qwen2.5-0.5B-Instruct, single T4 | Qwen3-8B, ReViSQL RLVR/PPO via Tinker |
+| Main question | detect current/collapse stress? | what happens when the detector controls training? | predict future PPO-KL/reward deterioration? |
 
-Thresholds do not transfer between them. The 0.10 figure is meaningless for
-φ_dev.
+Thresholds do not transfer between these regimes. In particular, the 0.10
+threshold from Campaign A is not a universal φ threshold and should not be
+applied directly to φ_dev or ReViSQL/PPO.
 
 ---
 
@@ -51,6 +63,10 @@ precursors. Corrected protocol v3 declared in the note, not yet run.
 loss-derived EMA to within 6e-14, confirming no gradient information entered
 the validated signal. (`PhiMonitor` accepts an optional `grad_norm` term at
 weight 0.01; Tinker did not expose it, so it stayed inert.)
+
+**Interpretation.** Campaign A supports φ_jump as a specific,
+near-instantaneous detector in these experiments. It does **not** establish φ
+as a predictor of future instability.
 
 ---
 
@@ -116,7 +132,100 @@ separation, plus outright failure at the shipped default `stable_window=30`.
 
 ---
 
-## 4. Confounds that limit Campaign B
+## 4. Campaign C — ReViSQL / RLVR / signed PPO loss
+
+This August 2026 campaign asks a stricter transfer question: can the
+loss-only φ signal anticipate future instability in a real RLVR/PPO workload?
+It is deliberately passive, so there is no sensor–actuator contamination.
+
+**Full note:**
+[`revisql_ppo_phi_validation.md`](revisql_ppo_phi_validation.md)
+
+### Setup
+
+- `Qwen/Qwen3-8B` via Tinker
+- ReViSQL text-to-SQL RLVR workload
+- PPO loss
+- 50 training steps / 100 examples
+- LoRA rank 16, LR `1e-4`
+- group size 2, batch size 2
+- φ passive: no controller intervention
+- Tinker `loss:sum` normalised by action tokens as `loss_per_token`
+- chronological 60/40 calibration/evaluation split
+- future horizons `t+1`, `t+2`, `t+5`
+
+The same loss stream was used to compare `φ_jump` with `|Δloss|`, rolling
+STD(5), rolling MAD(5), causal/expanding z-score and the symmetric follow-up
+
+```text
+φ_abs(t) = 0.8 φ_abs(t-1) + 0.2 |Δloss(t)|.
+```
+
+### Result
+
+The original one-sided `φ_jump` did **not** reliably anticipate future
+PPO-KL excursions. In the late held-out region, φ decreased while several
+large KL values occurred:
+
+| step | φ_jump | PPO-KL |
+|---:|---:|---:|
+| 43 | 0.01649 | 0.62240 |
+| 44 | 0.01319 | 1.25181 |
+| 45 | 0.01134 | 1.05359 |
+| 48 | 0.00581 | 1.11044 |
+
+The one-sided formula is also structurally awkward for PPO because PPO loss is
+signed: large negative loss changes are discarded by `max(0, Δloss)`. Step 48
+is a clear contemporaneous example (`|Δloss| ≈ 0.07561`, `φ_jump ≈ 0.00581`,
+`PPO-KL ≈ 1.11044`). This demonstrates blindness to one direction of loss
+movement; it does not by itself demonstrate prediction because loss and KL are
+observed at the same step.
+
+The symmetric `φ_abs` repair did not recover convincing predictive value.
+Exploratory ROC-AUC on the chronological evaluation segment for future
+KL-spike ranking was:
+
+| horizon | φ_jump | φ_abs | STD(5) | |Δloss| | |z-score| |
+|---|---:|---:|---:|---:|---:|
+| t+1 | 0.458 | 0.375 | 0.333 | 0.000 | 0.146 |
+| t+2 | 0.578 | 0.533 | 0.411 | 0.333 | 0.222 |
+| t+5 | 0.556 | 0.500 | 0.486 | 0.125 | 0.444 |
+
+With a φ_abs P90 threshold calibrated only on the first 60% (≈0.054), the
+final 40% produced no φ_abs alarms while containing three KL-spike events:
+0 true positives, 3 false negatives in this small evaluation segment.
+
+Reward prediction was likewise not convincing: exploratory φ_abs AUC was
+approximately 0.466 (`t+1`), 0.292 (`t+2`) and 0.600 (`t+5`), with too few
+late-horizon points/events for the last value to support a positive claim.
+
+### Verdict
+
+Campaign C rejects the **setting-specific transfer claim** that
+`EMA(max(0, Δloss))` is a generally useful predictor when applied directly to
+signed PPO loss in ReViSQL/RLVR. The natural symmetric repair
+`EMA(|Δloss|)` is also not supported as a useful predictor by this trajectory
+and does not establish an advantage over the simple loss-domain baselines.
+
+This does **not** erase Campaign A. The combined evidence says:
+
+- φ_jump showed useful near-instantaneous **detection** in the specific
+  Campaign A Tinker experiments;
+- that evidence did not establish **prediction**;
+- when prediction was tested in ReViSQL/PPO, neither φ_jump nor φ_abs showed
+  convincing future-KL predictive value;
+- the broader proposition that some other loss-only predictor could work in
+  PPO remains open.
+
+Do not tune β, windows or thresholds on these same 50 observations merely to
+recover a positive result. A materially changed formulation is a new
+hypothesis and should be evaluated on an independent trajectory.
+
+---
+
+## 5. Confounds and statistical limits
+
+### Campaign B
 
 1. **The task saturates.** 20 fixed prompt/target pairs over 200 steps is ten
    epochs on the same material. Control-arm loss: 0.41 (steps 80–119) → 0.017
@@ -145,13 +254,31 @@ separation, plus outright failure at the shipped default `stable_window=30`.
    computed "latency" for the control arm relative to step 80, where no shock
    exists.
 
+### Campaign C
+
+1. One 50-step trajectory.
+2. One model and one RLVR workload.
+3. Two databases in the diagnostic subset.
+4. Few KL-spike events in the held-out chronological evaluation region.
+5. No multi-seed replication yet.
+6. PPO loss is shaped by signed advantages and clipping and should not be
+   interpreted like ordinary positive supervised cross-entropy loss.
+
+Campaign C is therefore sufficient to reject a strong transfer claim for the
+tested φ formulations in this run, but not to establish a universal
+impossibility result for loss-only PPO monitoring.
+
 ---
 
-## 5. Reproducing without a GPU
+## 6. Reproducing without a GPU / API rerun
 
 `traces_phi_clean.json` + `test12_reanalyze.py` regenerate the full Test 12
 detector accounting in seconds, no GPU and no API key. Same for
 `test7_reanalyze.py` against `phi_lead_time_log.json`.
+
+The ReViSQL φ_abs comparison is an offline transformation of the already
+observed loss trajectory; it does not require another Tinker training run once
+the 50-step series is available.
 
 Campaign A scripts need a Tinker API key (`TINKER_API_KEY`). Campaign B
 scripts need a GPU; each 200-step run takes roughly 8–10 minutes on a T4.
