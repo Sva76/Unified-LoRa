@@ -1,101 +1,205 @@
-# Unified-LoRA Architecture
+# Unified-LoRA Architecture — historical controller design
 
-## Two Problems, One Solution
+> **Status (August 2026): historical / falsified controller architecture.**
+>
+> This document describes the architecture that motivated the original
+> Unified-LoRA experiments. It is retained for reproducibility and for
+> understanding the code, **not as a validated or recommended design**.
+> Multi-seed experiments subsequently showed that Unified-LoRA did not beat
+> AdaLoRA on quality or stability. Later validation also separated two
+> different signals that earlier documentation had both called φ, and a
+> ReViSQL/RLVR experiment found that the loss-only φ did not transfer as a
+> reliable predictor of future PPO-KL instability.
+>
+> For the current scientific status, read the main [README](../README.md) and
+> the [`validation/`](../validation/) evidence bundle.
 
-### Problem 1: Cold-Start on Rank Transitions
+---
 
-Standard adaptive LoRA uses independent adapter pairs per rank. Switching from rank 4 to rank 8 activates a fresh (A₈, B₈) that knows nothing about what (A₄, B₄) learned. Measured impact: 3–6 F1 point degradation per transition.
+## 1. What the original architecture attempted
 
-**Solution — NestedLoRA:** A single matrix pair at max rank, with active rank = a slice boundary. r4 ⊂ r8 ⊂ r16, so all learning is preserved across transitions. Zero re-allocation, zero degradation.
+Unified-LoRA combined three ideas:
 
-### Problem 2: Rank Adjustment ≠ Mode Switching
+1. **NestedLoRA** — one maximum-rank adapter allocation with nested active
+   slices, intended to avoid cold-start when switching rank.
+2. **An FSM controller** — discrete operating states rather than continuously
+   changing rank.
+3. **A stress signal** — used by the controller to decide when to change
+   operating state and learning behaviour.
 
-Existing controllers (AdaLoRA, DyLoRA, simple EMA-threshold) treat rank adaptation as a quantitative dial: more stress → more rank, less stress → less rank. This misses the fact that different stress levels demand qualitatively different responses:
+The original hypothesis was that this combination could improve stability and
+quality relative to fixed LoRA and established adaptive-rank methods.
 
-- **Low stress**: You want efficiency — use minimal rank.
-- **Moderate stress**: Standard learning — use moderate rank.
-- **High stress**: You need protection — max rank PLUS the ability to undo changes if the stress was a transient spike (noisy batch, data corruption, task switch).
+That hypothesis was tested and **falsified**. AdaLoRA was superior in the
+multi-seed comparison reported in the main README. The controller code remains
+in the repository as a research artifact.
 
-A PID controller can adjust rank. It cannot save a snapshot and decide whether to roll back.
+---
 
-**Solution — FSM φ(t):** Three discrete modes (SINGLE, MULTI, MIRROR) with a composite stress signal and hysteresis. Mirror mode isn't just "more rank" — it's a different operational regime.
+## 2. NestedLoRA
 
-## The Synaptic Stress Signal φ(t)
+The NestedLoRA component uses a single matrix pair at maximum rank and changes
+the active rank by slicing it:
 
-Inspired by neurobiological stress response: neurons under stress don't just increase firing rate, they switch between potentiation, depression, and protective mechanisms.
-
-### Components
-
-**C — Convergence:** Is the model improving or diverging?
-
-The ratio of fast EMA to slow EMA of the loss. When fast > slow, loss is trending upward → stress. This captures the "direction" of training.
-
-**E — Entropy:** Are gradients coherent or chaotic?
-
-Cosine similarity between consecutive gradient vectors. High similarity = aligned gradients = organized learning. Low similarity = chaotic gradient directions = the model is confused. This captures the "quality" of the learning signal.
-
-**S — Stress Magnitude:** How large are the gradient forces?
-
-EMA-smoothed L2 norm of LoRA gradients. This captures the raw "intensity" of parameter updates.
-
-### Combination
-
-```
-φ(t) = 0.3·C + 0.3·E + 0.4·S
-```
-
-The weights are configurable. S gets slightly more weight because gradient magnitude is the most directly measurable signal.
-
-### Normalization
-
-φ_raw is normalized to [0, 1] via running z-score over a sliding window. This makes the controller self-calibrating: the same thresholds (φ_low=0.3, φ_high=0.7) work across different models, tasks, and training phases without manual tuning.
-
-## FSM Transitions
-
-```
-           φ > φ_low            φ > φ_high
-  SINGLE ─────────→ MULTI ─────────→ MIRROR
-         ←─────────       ←─────────
-           φ < φ_low            φ < φ_high
+```text
+r4 ⊂ r8 ⊂ r16
 ```
 
-Rules:
-- **No skip transitions**: SINGLE cannot jump directly to MIRROR.
-- **Hysteresis**: A mode must be held for `hysteresis_steps` before any transition. This prevents oscillation on noisy φ values.
-- **Mirror entry**: Saves a snapshot of current LoRA weights.
-- **Mirror exit**: Computes relative drift. If weights moved <5%, the stress was transient → restore snapshot. If weights moved significantly, the stress was real → keep new weights.
+The design goal was to preserve already learned low-rank components when
+capacity expanded, rather than activating a completely independent adapter
+pair.
 
-The 5% threshold was determined empirically: transient noise spikes (corrupt batches, outlier gradients) cause <2% drift; real task shifts cause >10% drift. The 5% boundary sits cleanly between them.
+This mechanism remains an architectural property of the implementation. It
+should not be read as evidence that the overall Unified-LoRA controller is
+superior: the full controller comparison was negative.
 
-## The Mirror Mechanism
+---
 
-Mirror mode is the key differentiator. When φ crosses the high threshold:
+## 3. Historical FSM design
 
-1. Controller saves `{lora_A, lora_B, step}` as a snapshot.
-2. Rank expands to maximum (r=16) to absorb the stress.
-3. Training continues with full capacity.
+The controller was designed around discrete operating modes, with hysteresis,
+snapshots and rollback logic. Earlier versions of this document used the
+names `SINGLE`, `MULTI` and `MIRROR`; the current implementation and validation
+materials should be treated as the source of truth for exact state names and
+behaviour.
 
-When φ drops below the threshold (recovery):
+The conceptual design was:
 
-4. Controller measures how much weights drifted from the snapshot.
-5. **If drift < 5%**: The stress was noise. Restore the pre-stress weights. The model "forgets" the noisy period.
-6. **If drift ≥ 5%**: The stress was real (e.g., new task, distribution shift). Keep the new weights. The model "learned through" the stress.
+```text
+low stress       -> lower-capacity / efficiency state
+baseline stress  -> normal training state
+high stress      -> protective / higher-capacity state
+```
 
-This is analogous to synaptic consolidation in neuroscience: short-term stress is reversible; sustained stress leads to structural change.
+The controller could also snapshot adapter state and use rollback logic after
+a stress episode.
 
-## Design Decisions
+These were design hypotheses, not validated advantages. The subsequent
+experiments found an important failure mode: **sensor–actuator contamination**.
+When the controller changes the same training dynamics from which its stress
+signal is computed, it changes the signal it is trying to interpret.
 
-### Why three modes, not continuous rank?
-We tested continuous rank (±2 at each step). It oscillates. Discrete modes with hysteresis produce stable, interpretable behavior. Three modes map naturally to the neurobiological metaphor (efficient cruise / active learning / protective stabilization).
+See [`validation/phi_contamination_note_EN.md`](../validation/phi_contamination_note_EN.md)
+and the validation README for the measured results and confounds.
 
-### Why φ(t) instead of just gradient norm?
-Gradient norm (S alone) can't distinguish between "the model is learning fast" (high S, low E, low C) and "the model is confused by noise" (high S, high E, high C). The composite signal catches the difference.
+---
 
-### Why not SVD-based (AdaLoRA)?
-Cost. SVD per layer per step is O(d²r), which is affordable for DistilBERT but prohibitive at 7B+. φ(t) is O(d) (a gradient norm + a cosine similarity).
+## 4. Important correction: there is no single validated “φ(t)” architecture
 
-### Why adaptive normalization?
-Fixed thresholds would require different values for every model/task/learning rate. Running z-score makes {0.3, 0.7} universal defaults.
+Earlier documentation conflated multiple generations of the stress signal.
+That is now explicitly corrected.
 
-### Why 0.3 and 0.7?
-These map to ±1.2σ from the mean in the normalized scale, which empirically gave the best balance between responsiveness and stability. They're configurable.
+### φ_jump — Tinker loss-only signal
+
+The signal validated in Tests 5–7 is
+
+```text
+φ_jump(t) = EMA_0.8(max(0, Δloss(t)))
+```
+
+It requires only the loss stream. In the original Qwen3-8B/Tinker experiments
+it behaved as a specific, near-instantaneous **detector** of instability. The
+result does not establish prediction of future instability.
+
+### φ_dev — local controller signal
+
+The local controller experiments use a different signal, approximately
+
+```text
+φ_dev = EMA(abs(loss - EMA(loss)) + 0.5 * max(0, Δloss))
+```
+
+with adaptive thresholding over its history. Its numerical scale is very
+different from φ_jump. Thresholds and values must not be transferred between
+the two.
+
+The validation campaign also found that the logged smoothed φ_dev is not
+identical to the raw quantity on which the FSM acts. This is a known
+reproducibility defect documented in the validation bundle.
+
+### Historical composite C/E/S formulation
+
+An early design described φ as a weighted combination of convergence,
+gradient-direction coherence and gradient magnitude:
+
+```text
+φ = 0.3*C + 0.3*E + 0.4*S
+```
+
+That formulation belongs to the **historical design phase**. It is not the
+loss-only φ_jump validated behind Tinker, and it should not be cited as the
+validated φ definition.
+
+Likewise, earlier claims that normalization made thresholds such as `0.3` and
+`0.7` universal across models/tasks are **withdrawn**. The later evidence
+shows explicitly that signal scales and thresholds are domain-dependent.
+
+---
+
+## 5. ReViSQL / PPO transfer test
+
+In August 2026 the loss-only idea was tested passively in a different regime:
+ReViSQL text-to-SQL RLVR/PPO on Qwen3-8B via Tinker.
+
+The question was stricter than the original detector experiments: could φ
+anticipate future PPO-KL excursions?
+
+The answer in the tested 50-step trajectory was **no convincing evidence**.
+The original one-sided φ_jump did not reliably anticipate future KL spikes.
+Because PPO loss is signed, a natural symmetric variant was also tested
+offline:
+
+```text
+φ_abs(t) = 0.8 φ_abs(t-1) + 0.2 |Δloss(t)|
+```
+
+That variant also failed to establish useful predictive value or a convincing
+advantage over simple loss-domain baselines such as rolling standard
+deviation, absolute loss change and a causal z-score.
+
+This is a setting-specific negative transfer result, not proof that all
+loss-only monitoring is impossible.
+
+Full note:
+[`validation/revisql_ppo_phi_validation.md`](../validation/revisql_ppo_phi_validation.md).
+
+---
+
+## 6. What survived the architecture campaign
+
+The evidence supports a narrower set of conclusions than the original design
+claimed:
+
+- Nested rank slicing is an implemented mechanism, but it did not make the
+  complete Unified-LoRA controller outperform AdaLoRA.
+- The original adaptive controller hypothesis is falsified in the tested
+  regimes.
+- φ_jump showed useful near-instantaneous detection in its original Tinker
+  experiments, but not demonstrated prediction.
+- The local controller exposed a measurable sensor–actuator contamination
+  problem.
+- φ_jump did not transfer as a reliable future-KL predictor in the ReViSQL/PPO
+  run; φ_abs did not rescue that predictive claim.
+- Thresholds are **not universal** and must not be transferred between signal
+  definitions, models or training regimes without calibration and independent
+  validation.
+
+If the goal is adaptive-rank fine-tuning rather than studying these failure
+modes, the current repository conclusion is to use **AdaLoRA** rather than
+Unified-LoRA.
+
+---
+
+## 7. Source of truth
+
+For current claims and limitations, use:
+
+- [main README](../README.md)
+- [`validation/README.md`](../validation/README.md)
+- [`validation/phi_validation_note_EN.md`](../validation/phi_validation_note_EN.md)
+- [`validation/phi_contamination_note_EN.md`](../validation/phi_contamination_note_EN.md)
+- [`validation/revisql_ppo_phi_validation.md`](../validation/revisql_ppo_phi_validation.md)
+
+This document is intentionally retained as an architectural history rather
+than deleted: the failed design and the corrections are part of the research
+record.
