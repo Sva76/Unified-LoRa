@@ -262,11 +262,18 @@ class OrbitalController:
         self._adapters = adapters
 
     def get_summary(self) -> dict:
+        """Expose the acted-on signal and its EMA without changing the FSM.
+
+        ``phi`` retains the historical rounded EMA alias. New trace collectors
+        should save both explicit, unrounded fields to avoid conflating them.
+        """
         return {
             "state": self.current_state.name,
             "rank": self.current_rank,
             "lr": round(self.current_lr, 8),
             "phi": round(self.phi_ema, 6),
+            "phi_raw": self.phi_log[-1].phi if self.phi_log else 0.0,
+            "phi_ema": self.phi_ema,
             "steps_in_state": self.steps_in_state,
             "transitions": len(self.transition_log),
             "has_snapshot": self.weight_snapshot is not None,

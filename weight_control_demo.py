@@ -1,3 +1,10 @@
+"""Historical weight-control narrative; this file contains no executable demo.
+
+The original prose below is retained for provenance. Its claims of collapse
+prevention and bounded weights are not established by these descriptive
+measurements and are superseded by the controller falsification documented in
+README.md and validation/corrections_2026_09.md.
+
 Unified-LoRA does not only improve performance metrics — it directly controls weight updates (ΔW).
 
 We measure this using three signals:
@@ -40,3 +47,4 @@ not just a parameter-efficient fine-tuning method.
 
 Without control: weights diverge.  
 With Unified-LoRA: weights remain bounded.
+"""

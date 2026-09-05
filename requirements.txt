@@ -4,3 +4,5 @@ datasets
 evaluate
 accelerate
 scikit-learn
+numpy
+pandas

@@ -1,5 +1,14 @@
 # Black-box observability of PPO instability — ReViSQL / Tinker
 
+> **5 September 2026 correction notice.** This document includes historical
+> results. The Tinker Tests 5–7 had a completion-loss alignment defect; their
+> detector figures are observations of that task, not validation of corrected
+> fine-tuning. Alarm confirmation timing, controller telemetry and ReViSQL
+> baseline definitions have also been clarified/corrected. Read
+> [the dated correction note](corrections_2026_09.md) for the current interpretation.
+> Original logs and historical metric values remain unchanged. Corrected
+> training has not yet been rerun.
+
 ## Research question
 
 Can a black-box observer predict future training instability (PPO-KL divergence) using only telemetry exposed by a managed training API?

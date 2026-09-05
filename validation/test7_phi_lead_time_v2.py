@@ -1,3 +1,5 @@
+# September 2026 correction: see validation/corrections_2026_09.md.
+# Pre-correction scripts and logs are preserved at commit 72b4d08b7fbdcbb6d395db1460a4afd8d0d90884.
 """
 =============================================================================
 TEST 7 — LEAD TIME PREDITTIVO di φ su Tinker
@@ -6,7 +8,7 @@ DOMANDA: φ supera la soglia di allarme un numero UTILE di step PRIMA del
 collasso della loss, con pochi falsi allarmi, e PRIMA di un monitor ingenuo
 sulla loss?
 
-DESIGN PRE-REGISTRATO (tutte le definizioni fissate QUI, prima dei dati):
+DISEGNO STORICO (parametri conservati come riferimento; questa e una correzione):
 
  BRACCIO COLLASSO (8 run):
    LR a rampa esponenziale: LR(t) = LR0 * 2^(t / T_double)
@@ -27,9 +29,9 @@ DESIGN PRE-REGISTRATO (tutte le definizioni fissate QUI, prima dei dati):
  DEFINIZIONI (pre-fissate):
    COLLASSO t_c  : primo step con loss >= 3 * mediana(loss step 20-60)
                    sostenuto per 5 step consecutivi, oppure primo NaN.
-   ALLARME φ t_a : primo step con φ >= 0.10 sostenuto per 3 step consecutivi.
+   ALLARME φ t_a : conferma al TERZO step consecutivo con φ >= 0.10.
                    (0.10 = la soglia "healthy/altro" GIÀ fissata nel Test 6.)
-   LEAD TIME L   : t_c - t_a.
+   LEAD TIME L   : onset retrospettivo del collasso meno conferma causale dell'allarme.
 
  VERDETTO (pre-fissato):
    SUPPORTATO  : L >= 10 in almeno 6/8 run collasso, mediana L > 0,
@@ -53,11 +55,22 @@ except ModuleNotFoundError:
     import importlib; importlib.invalidate_caches()
     import tinker  # noqa
 import numpy as np
+try:
+    from .phi_utils import (PhiJumpMonitor as PhiMonitor, completion_example,
+                            new_run_output, write_run_json)
+except ImportError:
+    from phi_utils import (PhiJumpMonitor as PhiMonitor, completion_example,
+                           new_run_output, write_run_json)
+
+# Correction of the historical task, NOT an execution of the proposed v3 stream.
+PROTOCOL_VERSION = "corrected-alignment-v1"
+print("Diagnostic rerun with corrected token alignment; legacy thresholds are unvalidated.")
 
 # ---------------------------------------------------------------------------
 # 0. Setup e parametri PRE-REGISTRATI
 # ---------------------------------------------------------------------------
-os.environ["TINKER_API_KEY"] = "MY KEY"  # <-- inserisci
+if not os.environ.get("TINKER_API_KEY"):
+    raise RuntimeError("Set TINKER_API_KEY in the environment before running this experiment")
 
 BASE_MODEL   = "Qwen/Qwen3-8B"
 LR0          = 1e-4          # LR iniziale (identico al regime sano)
@@ -81,6 +94,7 @@ BASELINE_WIN    = (20, 60)  # finestra per la mediana di baseline
 DETECT_FROM     = BASELINE_WIN[1]  # fase I: baseline (0-60); fase II: monitoraggio (>=60)
 LEAD_USEFUL     = 10     # lead time minimo "azionabile"
 
+OUTPUT = new_run_output("test7_lead_time.json")
 service = tinker.ServiceClient()
 
 _SUBJECTS = ["cat","dog","car","tree","river","star","book","clock","stone","bird",
@@ -91,19 +105,6 @@ def build_dataset(seed):
     r = random.Random(seed)
     subs = _SUBJECTS[:]; r.shuffle(subs)
     return [(f"Complete: The {a} {r.choice(_RELS)}", r.choice(_SUBJECTS)) for a in subs]
-
-class PhiMonitor:
-    """φ = EMA dei salti di loss verso l'alto. Identico ai Test 3-6."""
-    def __init__(self, beta=0.8):
-        self.beta = beta; self.ema_jump = 0.0; self.prev_loss = None
-    def update(self, loss, grad_norm=None):
-        if not np.isfinite(loss):
-            return self.ema_jump
-        jump = 0.0 if self.prev_loss is None else max(0.0, loss - self.prev_loss)
-        self.prev_loss = loss
-        self.ema_jump = self.beta * self.ema_jump + (1 - self.beta) * jump
-        g = 0.0 if grad_norm is None else grad_norm
-        return self.ema_jump + 0.01 * g
 
 def dig(obj, *names):
     for n in names:
@@ -122,8 +123,7 @@ def extract_loss(fb_res):
             loss = m["loss"]
         else:
             loss = float("nan")
-    gn = m.get("grad_norm") if isinstance(m, dict) else None
-    return float(loss), (float(gn) if gn is not None else None)
+    return float(loss)
 
 # ---------------------------------------------------------------------------
 # 1. Un run: registra (step, loss, phi, lr). Nessuna decisione online.
@@ -139,17 +139,16 @@ def run_arm(seed, lr_fn, max_steps, tc_client, tok):
         lr = lr_fn(step)
         prompt, target = pairs[step % len(pairs)]
         pi = tok.encode(prompt); ti = tok.encode(" " + target)
-        toks = pi + ti
+        inputs, targets, weights = completion_example(pi, ti)
         datum = tinker.types.Datum(
-            model_input=tinker.types.ModelInput.from_ints(tokens=toks),
-            loss_fn_inputs=dict(weights=[0.0]*len(pi) + [1.0]*len(ti),
-                                target_tokens=toks[1:] + [toks[-1]]),
+            model_input=tinker.types.ModelInput.from_ints(tokens=inputs),
+            loss_fn_inputs=dict(weights=weights, target_tokens=targets),
         )
         fb = tc_client.forward_backward([datum], "cross_entropy")
         op = tc_client.optim_step(tinker.AdamParams(learning_rate=lr))
         fb_res = fb.result(); op.result()
-        loss, gn = extract_loss(fb_res)
-        phi = phi_mon.update(loss, gn)
+        loss = extract_loss(fb_res)
+        phi = phi_mon.update(loss)
         log.append((step, loss, phi, lr))
         # stop anticipato solo su NaN conclamato e persistente (risparmio crediti):
         # 10 NaN consecutivi = run morto, non c'è più nulla da osservare.
@@ -158,140 +157,49 @@ def run_arm(seed, lr_fn, max_steps, tc_client, tok):
     return log
 
 # ---------------------------------------------------------------------------
-# 2. Rilevatori POST-HOC con definizioni pre-registrate
+# Corrected diagnostic collection and causal timing accounting.
+# The old thresholds remain visible for comparison, not as new calibration.
 # ---------------------------------------------------------------------------
-def _first_sustained(flags, sustain):
-    """Primo indice in cui flags è True per `sustain` step consecutivi."""
-    count = 0
-    for i, f in enumerate(flags):
-        count = count + 1 if f else 0
-        if count >= sustain:
-            return i - sustain + 1
-    return None
+try:
+    from .test7_metrics import summarize
+except ImportError:
+    from test7_metrics import summarize
 
-def detect_collapse(log):
-    base = [l for (s, l, _, _) in log
-            if BASELINE_WIN[0] <= s < BASELINE_WIN[1] and np.isfinite(l)]
-    if not base:
-        return None, None
-    med = float(np.median(base))
-    thresh = COLLAPSE_MULT * med
-    # Fase II: il monitoraggio parte DOPO la finestra di baseline (step >= DETECT_FROM).
-    # La discesa iniziale della loss (step 0-20) non è un collasso.
-    flags = [s >= DETECT_FROM and ((not np.isfinite(l)) or (l >= thresh))
-             for (s, l, _, _) in log]
-    # un NaN in fase di monitoraggio è già collasso da solo
-    first_nan = next((s for (s, l, _, _) in log
-                      if s >= DETECT_FROM and not np.isfinite(l)), None)
-    t_sust = _first_sustained(flags, COLLAPSE_SUSTAIN)
-    candidates = [t for t in (t_sust, first_nan) if t is not None]
-    return (min(candidates) if candidates else None), med
-
-def detect_phi_alarm(log):
-    flags = [s >= DETECT_FROM and p >= PHI_THRESH for (s, _, p, _) in log]
-    return _first_sustained(flags, PHI_SUSTAIN)
-
-def detect_naive_alarm(log, med):
-    thresh = NAIVE_MULT * med
-    flags = [s >= DETECT_FROM and np.isfinite(l) and l > thresh
-             for (s, l, _, _) in log]
-    return _first_sustained(flags, NAIVE_SUSTAIN)
-
-# ---------------------------------------------------------------------------
-# 3. Esecuzione — braccio collasso
-# ---------------------------------------------------------------------------
-print(f"TEST 7 — LEAD TIME | {BASE_MODEL}")
-print(f"soglia φ = {PHI_THRESH} (pre-fissata, dal Test 6) | lead utile >= {LEAD_USEFUL} step\n")
-
-collapse_results = []
-print("=== BRACCIO COLLASSO (LR a rampa) ===")
-print(f"{'seed':<6}{'T_dbl':<7}{'t_c':<7}{'t_a(φ)':<8}{'t_a(naive)':<11}{'L_phi':<7}{'L_naive'}")
+logs = {"collapse": {}, "healthy": {}}
+ramp_periods = {}
 for seed in SEEDS_COLLAPSE:
     rng = random.Random(seed * 991)
     t_double = rng.randint(T_DOUBLE_MIN, T_DOUBLE_MAX)
-    lr_fn = lambda step, td=t_double: LR0 * (2.0 ** (step / td))
+    ramp_periods[str(seed)] = t_double
     tc = service.create_lora_training_client(base_model=BASE_MODEL)
     tok = tc.get_tokenizer()
-    log = run_arm(seed, lr_fn, STEPS_COLLAPSE_CAP, tc, tok)
-    t_c, med = detect_collapse(log)
-    t_a = detect_phi_alarm(log)
-    t_n = detect_naive_alarm(log, med) if med is not None else None
-    L_phi   = (t_c - t_a) if (t_c is not None and t_a is not None) else None
-    L_naive = (t_c - t_n) if (t_c is not None and t_n is not None) else None
-    collapse_results.append({
-        "seed": seed, "t_double": t_double, "t_c": t_c, "t_a_phi": t_a,
-        "t_a_naive": t_n, "lead_phi": L_phi, "lead_naive": L_naive,
-        "baseline_median": med,
-        "log": log,
-    })
-    fmt = lambda v: "-" if v is None else str(v)
-    print(f"{seed:<6}{t_double:<7}{fmt(t_c):<7}{fmt(t_a):<8}{fmt(t_n):<11}"
-          f"{fmt(L_phi):<7}{fmt(L_naive)}")
+    logs["collapse"][str(seed)] = run_arm(
+        seed, lambda step, td=t_double: LR0 * 2.0 ** (step / td),
+        STEPS_COLLAPSE_CAP, tc, tok)
+    print(f"Completed ramp seed {seed}")
 
-# ---------------------------------------------------------------------------
-# 4. Esecuzione — braccio sano (falsi allarmi)
-# ---------------------------------------------------------------------------
-healthy_results = []
-print("\n=== BRACCIO SANO (LR costante) ===")
-print(f"{'seed':<6}{'falso allarme φ':<18}{'step'}")
 for seed in SEEDS_HEALTHY:
     tc = service.create_lora_training_client(base_model=BASE_MODEL)
     tok = tc.get_tokenizer()
-    log = run_arm(seed, lambda s: LR_HEALTHY, STEPS_HEALTHY, tc, tok)
-    t_a = detect_phi_alarm(log)
-    healthy_results.append({"seed": seed, "false_alarm_step": t_a, "log": log})
-    print(f"{seed:<6}{'SÌ' if t_a is not None else 'no':<18}{t_a if t_a is not None else '-'}")
+    logs["healthy"][str(seed)] = run_arm(seed, lambda s: LR_HEALTHY,
+                                           STEPS_HEALTHY, tc, tok)
+    print(f"Completed healthy seed {seed}")
 
-# ---------------------------------------------------------------------------
-# 5. VERDETTO (criteri pre-registrati)
-# ---------------------------------------------------------------------------
-leads_phi   = [r["lead_phi"]   for r in collapse_results if r["lead_phi"]   is not None]
-leads_naive = [r["lead_naive"] for r in collapse_results if r["lead_naive"] is not None]
-n_useful    = sum(1 for L in leads_phi if L >= LEAD_USEFUL)
-n_collapsed = sum(1 for r in collapse_results if r["t_c"] is not None)
-false_alarms = sum(1 for r in healthy_results if r["false_alarm_step"] is not None)
-
-med_phi   = float(np.median(leads_phi))   if leads_phi   else float("nan")
-med_naive = float(np.median(leads_naive)) if leads_naive else float("nan")
-
-print("\n================= VERDETTO =================")
-print(f"run collassati            : {n_collapsed}/{len(SEEDS_COLLAPSE)}")
-print(f"lead time φ (mediana)     : {med_phi}")
-print(f"lead time naive (mediana) : {med_naive}")
-print(f"run con lead >= {LEAD_USEFUL}        : {n_useful}/{len(SEEDS_COLLAPSE)}")
-print(f"falsi allarmi (sani)      : {false_alarms}/{len(SEEDS_HEALTHY)}")
-
-if n_collapsed < 6:
-    print("=> ATTENZIONE: meno di 6 collassi. La rampa era troppo lenta o il cap"
-          " troppo basso: aggiusta T_DOUBLE/CAP e ripeti. Nessun verdetto.")
-elif (np.isfinite(med_phi) and med_phi <= 0) or false_alarms >= 3:
-    print("=> FALSIFICATO: φ non anticipa il collasso (o grida al lupo)."
-          " Il claim predittivo NON è supportato — va detto.")
-elif n_useful >= 6 and med_phi > 0 and false_alarms <= 1 and med_phi > med_naive:
-    print("=> SUPPORTATO: φ dà lead time azionabile, con pochi falsi allarmi,"
-          " e batte il monitor ingenuo. Claim predittivo SUPPORTATO.")
-else:
-    print("=> AMBIGUO: lead time positivo ma non chiaramente utile/superiore"
-          " al monitor ingenuo. Riportare il risultato parziale cosí com'è.")
-
-# ---------------------------------------------------------------------------
-# 6. Salvataggio log completi (per grafici e per Montebello)
-# ---------------------------------------------------------------------------
 out = {
-    "preregistered": {
+    "protocol_version": PROTOCOL_VERSION,
+    "model": BASE_MODEL,
+    "confirmatory": False,
+    "legacy_reference_settings": {
         "phi_thresh": PHI_THRESH, "phi_sustain": PHI_SUSTAIN,
         "collapse_mult": COLLAPSE_MULT, "collapse_sustain": COLLAPSE_SUSTAIN,
         "naive_mult": NAIVE_MULT, "naive_sustain": NAIVE_SUSTAIN,
-        "baseline_window": BASELINE_WIN, "detect_from": DETECT_FROM, "lead_useful": LEAD_USEFUL,
-        "lr0": LR0, "t_double_range": [T_DOUBLE_MIN, T_DOUBLE_MAX],
+        "baseline_window": BASELINE_WIN, "detect_from": DETECT_FROM,
+        "lr0": LR0, "t_double_by_seed": ramp_periods,
     },
-    "collapse": [{k: v for k, v in r.items() if k != "log"} for r in collapse_results],
-    "healthy":  [{k: v for k, v in r.items() if k != "log"} for r in healthy_results],
-    "logs": {
-        "collapse": {str(r["seed"]): r["log"] for r in collapse_results},
-        "healthy":  {str(r["seed"]): r["log"] for r in healthy_results},
-    },
+    "logs": logs,
 }
-with open("phi_lead_time_log.json", "w") as f:
-    json.dump(out, f)
-print("\nLog completo salvato in phi_lead_time_log.json")
+write_run_json(OUTPUT, out)
+report = summarize(out)
+write_run_json(OUTPUT.with_name("test7_timing_report.json"), report)
+print(json.dumps(report, indent=2))
+print(f"Diagnostic results saved to {OUTPUT}")

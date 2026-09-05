@@ -121,7 +121,7 @@ for step in range(STEPS):
 
     s = ctrl.get_summary()               # phi, state, rank, lr
     log.append({"step": step, "loss": float(loss.item()),
-                "phi": s["phi"], "state": s["state"],
+                "phi": s["phi"], "phi_raw": s["phi_raw"], "phi_ema": s["phi_ema"], "state": s["state"],
                 "rank": s["rank"], "lr": s["lr"], "shock": int(shocked)})
 
     if step % 10 == 0 or SHOCK_START - 2 <= step <= SHOCK_END + 2:

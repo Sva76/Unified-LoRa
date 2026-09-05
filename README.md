@@ -1,13 +1,19 @@
 # Unified-LoRA → the φ signal
 
-**Status (August 2026).** The original controller hypothesis was falsified by
-its own test campaign. What survives is a loss-only training-stress signal and
-a documented failure mode of adaptive controllers that read what they modify.
-A new ReViSQL/RLVR validation further shows that the original one-sided φ does
-**not** transfer as a reliable predictor of future PPO instability, and that a
-symmetric `EMA(|Δloss|)` repair does not recover convincing predictive value in
-the tested 50-step trajectory. Evidence, raw logs and reanalysis notes are in
-[`validation/`](validation/).
+**Status (September 2026).** The original adaptive-controller hypothesis was
+not supported by the reported comparisons. The remaining research question is
+whether loss-only telemetry can detect or anticipate training failures, and
+how control interventions affect that telemetry. ReViSQL/PPO has not provided
+convincing predictive evidence for either φ formulation, including the
+preliminary 300-step seed 101 run.
+
+**Validation correction:** the historical Tinker Tests 5–7 used a misaligned
+completion-loss mask. Their recorded separation and alarms are retained as
+observations of that task, not validation of correctly aligned fine-tuning.
+Code corrections, timing conventions and their implications are documented in
+[`validation/corrections_2026_09.md`](validation/corrections_2026_09.md).
+The corrected training scripts have **not** been rerun. Original logs remain
+unchanged; the proposed non-memorizing v3 experiment is still outstanding.
 
 This repository is a research artifact, not a library. Nothing here is
 recommended for production fine-tuning.
@@ -21,8 +27,8 @@ stress signal during LoRA fine-tuning and adjusts adapter rank (NestedLoRA)
 and learning rate (Orbital FSM controller). The hypothesis was that this would
 beat established methods such as AdaLoRA on stability and quality.
 
-**It doesn't.** Multi-seed comparisons against AdaLoRA (official PEFT
-implementation) falsified it:
+**In the reported settings, it did not.** Multi-seed comparisons against
+AdaLoRA (official PEFT implementation) yielded:
 
 | Setting | AdaLoRA | Unified-LoRA | Fixed LoRA |
 |---|---|---|---|
@@ -30,9 +36,10 @@ implementation) falsified it:
 | Toy benchmark, divergences (extreme regime) | **0/3** | 3/3 | 3/3 |
 | MRPC, 50% label noise, F1 (3 seeds) | **0.518** | 0.358 | 0.374 |
 
-The cause appears structural: this controller regulates update *magnitude*,
-not *direction*. AdaLoRA's SVD parametrisation constrains direction, and that
-is what stabilises training in hard regimes.
+The mechanism behind this performance gap is not established by these
+comparisons. AdaLoRA differs in parameterization, regularization and rank
+allocation; controlled ablations would be needed to attribute the gap to any
+one of these components.
 
 ---
 
@@ -44,39 +51,45 @@ apart. They are not interchangeable and their thresholds do not transfer.
 
 | | **φ_jump** (Tests 5–7, Tinker) | **φ_dev** (Tests 8–14, local controller) |
 |---|---|---|
-| Definition | `EMA_0.8(max(0, Δloss))` | `EMA( abs(loss − EMA(loss)) + 0.5·max(0, Δloss) )` |
-| Typical value, healthy run | ~0.011 | ~1.9 |
-| Threshold rule | fixed, 0.10 | adaptive, `μ + k·σ` over φ history |
+| Definition | `EMA_0.8(max(0, Δloss))` | Raw: `abs(loss − EMA(loss)) + 0.5·max(0, Δloss)`; historical trace: its EMA |
+| Typical value, historical healthy arm | ~0.011 | ~1.9 |
+| Threshold rule | Historical fixed 0.10; Test 7 also uses warmup and persistence | FSM: raw φ against `μ + k·σ` of raw history |
 | Where implemented | `validation/test5–7*.py` | `orbital_controller.py` |
 
 **φ_jump is loss-only.** Verified numerically: the φ values logged in
 `validation/phi_lead_time_log.json` reproduce the pure loss-derived EMA to
-within 6e-14. (`PhiMonitor.update` accepts an optional `grad_norm` term
-weighted 0.01; Tinker did not expose `grad_norm`, so the term was inert
-throughout. It should be removed — see §6.)
+within numerical precision. The historical optional gradient term was inert;
+corrected Tests 5–7 use a shared monitor with a loss-only signature.
+`OrbitalController.get_summary()` now exposes unrounded `phi_raw` and
+`phi_ema`; the legacy `phi` key retains the rounded EMA.
 
 ---
 
-## 3. What φ_jump does, on Qwen3-8B via Tinker
+## 3. Historical φ_jump observations on Qwen3-8B via Tinker
 
-Thresholds were fixed from Test 5 data and reused unchanged in Tests 6–7.
-Verdict criteria, including failure conditions, are pre-registered inside the
-Test 5–7 scripts.
+Historical thresholds were taken from Test 5 and reused in Tests 6–7.
+The original scripts and criteria are available at commit
+`72b4d08b7fbdcbb6d395db1460a4afd8d0d90884`. Current scripts correct the data
+alignment and are diagnostic reruns, not a retrospective preregistration.
 
 | Result | Value | Runs |
 |---|---|---|
-| φ_jump in healthy training | ~0.011 (silent) | 3 |
+| Mean φ_jump in the historical healthy arm | ~0.011 | 3 |
 | Healthy vs unstable separation (aggressive LR, no induced shock) | 371× | 3 |
 | Blind classification, thresholds fixed in advance | 10/12 (extremes 10/10) | 12 |
-| False alarms on healthy runs (300 steps each) | 0/6 | 6 |
-| Detection latency at collapse | 1–2 steps | 4 |
+| False alarms from step 60, three consecutive exceedances (300-step runs) | 0/6 | 6 |
+| Retrospective φ-exceedance onset after collapse onset | 1–2 steps | 4 |
+| Causally confirmed φ alarm after the same collapse onset | 3–4 steps | same 4 |
 
-φ_jump behaves as a **specific, near-instantaneous detector — not a
-predictor.** A pre-registered lead-time test (Test 7) hit a confound: the task
-saturated to near-zero loss (memorisation), so no loss-derived signal could
-have shown precursors. That verdict is declared **void**, not favourable. The
-corrected protocol (v3, non-memorisable stream) is declared in the validation
-note before execution and has not yet been run.
+These figures describe the recorded historical task. The 371× figure is a
+ratio of signal means between regimes, not superiority over another detector.
+The 0/6 result excludes the first 60 steps and requires three exceedances:
+a single-threshold alarm from step zero would fire in 4/6 healthy runs.
+
+Test 7's predictive verdict remains **void** because of saturation, now
+compounded by the identified token-alignment defect. Correcting the code does
+not establish detection or prediction on a properly aligned, non-memorizing
+training task. The proposed v3 stream has not yet been run.
 
 **On novelty.** φ_jump is close to existing loss-domain spike statistics
 (K2-V2's local robust z-score on loss; ZClip's EMA z-score on gradient norms;
@@ -150,13 +163,14 @@ which uses both signs of PPO loss change. It did not recover convincing
 predictive performance. Exploratory ROC-AUC values for future KL-spike ranking
 on the chronological evaluation segment were:
 
-| horizon | φ_jump | φ_abs | STD(5) | |Δloss| | |z-score| |
+| horizon | φ_jump | φ_abs | STD(5) | abs(Δloss) | abs(z-score) |
 |---|---:|---:|---:|---:|---:|
 | t+1 | 0.458 | 0.375 | 0.333 | 0.000 | 0.146 |
 | t+2 | 0.578 | 0.533 | 0.411 | 0.333 | 0.222 |
 | t+5 | 0.556 | 0.500 | 0.486 | 0.125 | 0.444 |
 
-These are **exploratory numbers**, not population-performance estimates: the
+These are **historical exploratory numbers**, not recomputed with the corrected
+baseline definitions and not population-performance estimates: the
 held-out segment is small and contains few KL-spike events. They provide no
 convincing evidence that φ_abs adds predictive value over simple loss-domain
 statistics.
@@ -197,7 +211,8 @@ These runs use φ_dev and the full controller.
 **Sensor–actuator contamination.** The controller's actuator changes the
 signal its own sensor reads. In a shock-free phase, φ_dev rose to 3.05 while
 the FSM was in its HIGH state, against a maximum of 2.37 in a matched control
-arm with the actuator disabled. Effects, all same-seed paired comparisons:
+arm with the actuator disabled. Historical comparisons are listed below. The ratio row is same-seed;
+the latency row compares different detectors and different seed counts:
 
 | | actuator off | actuator on |
 |---|---|---|
@@ -205,25 +220,26 @@ arm with the actuator disabled. Effects, all same-seed paired comparisons:
 | Detection latency | 0.8 steps (mean, 5 seeds) | 4 steps |
 | Detection at default `stable_window=30` | — | never fires |
 
-**What this does not show.** Detection is *degraded*, not destroyed. At
+**What this does not show.** The 0.8-versus-4-step comparison does not isolate
+the actuator effect: the offline detector uses an EMA every step, while the
+FSM uses raw φ, evaluation intervals and hysteresis. A matched detector with
+separate LR/rank interventions is required for a causal latency claim. At
 `stable_window=10`, both `stress_k=1.5` and `6.0` detect at step 84 with no
 false positive on the control arm — they are valid operating points. An
 earlier draft of this README claimed no valid operating point exists with the
 actuator enabled; that claim is refuted by Test 14 and has been removed.
 
-**A control case bounds the effect.** AdaLoRA shows no comparable
-contamination (0.4%, within noise, 3 seeds), with actuator activity verified
-rather than assumed (effective rank 576 → 384). The condition therefore looks
-narrow and mechanistic: contamination appears when the actuator acts on the
-channel the sensor reads. Note that the AdaLoRA run is **not yet logged in
-this repository** — the number above comes from the contamination note and
-cannot currently be audited.
+**Reported AdaLoRA comparison, pending auditable logs.** The contamination
+note reports 0.4% (3 seeds) and effective rank changing from 576 to 384.
+The underlying run is **not yet logged in this repository**, so its magnitude
+and uncertainty cannot currently be checked. It does not establish that
+AdaLoRA is generally immune to this effect.
 
-**Prior context.** In control theory this is closed-loop identification bias,
-long known: under feedback without persistent excitation, the identified
-process is biased toward the negative inverse of the controller. As far as we
-can find, it has not been measured in adaptive PEFT. That framing is a
-hypothesis about where this fits, not a claim of priority.
+**Prior context.** Feedback complicates causal attribution because the
+controller changes the process it observes. Closed-loop identification is a
+relevant theoretical context; mapping this experiment to a specific
+identification-bias result requires further analysis. This is not a claim
+of priority for the general feedback problem.
 
 ---
 
@@ -237,27 +253,29 @@ Listed because they materially limit every number in §5.
    therefore a *memorised* task, not healthy-but-active training, and the
    shock arm has unlearnable corrupted targets. Separation between the two is
    easier than the intended comparison, so the ratios and the 5/5 detection
-   figures in `validation/` are upper bounds. This is the same confound that
+   figures may overestimate performance on more realistic tasks; they are not
+   formal statistical upper bounds. This is the same confound that
    voided Test 7. **It has not yet been fixed.**
-2. **Logged φ_dev is not the φ_dev the FSM acts on.**
-   `OrbitalController.get_summary()["phi"]` returns the smoothed `phi_ema`,
-   while the state machine compares the *raw* per-step φ against `μ + k·σ`.
-   At one representative shock step the trace records 4.52 where the
-   controller saw 17.8. Consequently, offline reanalysis of the published
-   traces cannot reproduce the controller's decisions — including
-   `validation/test12_reanalyze.py`, whose `μ + k·σ` rule looks identical to
-   the FSM's but runs on a different quantity. Fix: expose `phi_raw`
-   alongside `phi_ema`.
-3. **`PhiMonitor` carries a dead gradient term** (`+ 0.01 * grad_norm`). Inert
-   in all runs here, but it contradicts the loss-only claim on inspection.
+2. **Historical signal mismatch.** Historical `phi` traces contain the EMA,
+   while the FSM acts on raw φ. New summaries and trace collectors expose
+   both `phi_raw` and `phi_ema`. The old logs have not been retroactively
+   populated, and Test 12 reanalysis remains an offline EMA detector rather
+   than an FSM replay.
+3. **Corrected code, pending training validation.** Tests 5–7 now align
+   completion tokens and loss weights and remove the unused gradient input.
+   The ReViSQL derivation fixes rolling MAD and defines z-score from the
+   preceding five losses. These changes are versioned; historical results
+   and the original preregistration remain available. See the correction note.
 4. **Statistical scope.** Tests 8, 10 and 14 are single-seed. Test 12 uses 5
    seeds. The control-arm false positive observed at k=0.1 has not been
    replicated across seeds.
 5. **One model family, one task type, one shock type**, fixed shock onset at
-   step 80. Latency figures will not survive randomised onset.
-6. **ReViSQL/PPO statistical scope.** The new PPO result is one 50-step
-   trajectory, one model/workload, two databases and few held-out KL-spike
-   events. It rejects a strong transfer claim for the tested formulations; it
+   step 80. Transfer of latency figures to randomized onset has not been tested.
+6. **ReViSQL/PPO statistical scope.** The 50-step exploratory trajectory and
+   preliminary 300-step seed 101 result are not a completed multi-seed test.
+   Seed 101 reports φ_jump AUROC 0.474/0.414/0.426 at t+1/t+2/t+5, using
+   a descriptive within-run KL threshold. Raw seed 101 telemetry is not
+   currently committed, so those scores cannot yet be independently recomputed. It rejects a strong transfer claim for the tested formulations; it
    does not establish a universal impossibility result for loss-only PPO
    monitoring.
 
@@ -265,30 +283,35 @@ Listed because they materially limit every number in §5.
 
 ## 7. Quick start
 
-φ_jump needs only the loss stream:
+The monitor needs only the loss stream. This example implements the
+**historical Test 7 alarm policy**, including its warmup and persistence;
+it is not a validated policy for new tasks or corrected training data.
 
 ```python
-class PhiJumpMonitor:
-    """φ_jump = EMA of upward loss jumps. Loss stream only."""
-    def __init__(self, beta=0.8):
-        self.beta, self.ema_jump, self.prev = beta, 0.0, None
+from validation.phi_utils import PhiJumpAlarm
 
-    def update(self, loss):
-        jump = 0.0 if self.prev is None else max(0.0, loss - self.prev)
-        self.prev = loss
-        self.ema_jump = self.beta * self.ema_jump + (1 - self.beta) * jump
-        return self.ema_jump
-
-phi = PhiJumpMonitor()
+alarm = PhiJumpAlarm(threshold=0.10, detect_from=60, sustain=3)
 for batch in dataloader:
     loss = train_step(batch)
-    if phi.update(loss.item()) >= 0.10:   # threshold from Test 5; see §2
-        alert()
+    if alarm.update(loss.item()):
+        alert()  # available on the third exceedance, never backdated
 ```
 
-The 0.10 threshold was calibrated on Qwen3-8B via Tinker with this exact
-formula. It does not transfer to φ_dev, to ReViSQL/PPO, to other models, or to
-other loss scales without recalibration.
+A non-finite loss raises an error here and must be handled as a separate
+invalid/divergent observation. The threshold requires fresh calibration for
+corrected Tests 5–7, φ_dev, PPO, other models and other loss scales.
+
+Offline verification without API credits or a GPU:
+
+```bash
+python -m unittest discover -s tests -v
+python validation/test7_reanalyze.py
+python validation/test12_reanalyze.py
+```
+
+Test 7 reanalysis prints both retrospective and causal timestamps and writes
+nothing unless `--output` is supplied. Corrected training outputs go to new,
+timestamped directories under `validation/corrected_runs/`.
 
 The controller remains available as a research artifact:
 
@@ -307,7 +330,8 @@ adapters, ctrl, opt = setup_unified_lora(model)   # returns three values
 
 ## 8. If you need adaptive-rank fine-tuning
 
-Use AdaLoRA. That is the finding, not a disclaimer.
+AdaLoRA is the stronger baseline in the reported comparisons. This repository
+does not establish a universal ranking across tasks or training regimes.
 
 ---
 

@@ -117,7 +117,7 @@ def run_arm(with_shock, stable_window, stress_k, label):
         optimizer.step(); optimizer.zero_grad()
 
         s = ctrl.get_summary()
-        log.append({"step": step, "loss": float(loss.item()), "phi": s["phi"],
+        log.append({"step": step, "loss": float(loss.item()), "phi": s["phi"], "phi_raw": s["phi_raw"], "phi_ema": s["phi_ema"],
                     "state": s["state"], "rank": s["rank"], "lr": s["lr"]})
 
     del model
