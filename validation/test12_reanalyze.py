@@ -20,10 +20,15 @@ USO: mettere questo file in Colab dopo aver girato la raccolta tracce.
      Legge /content/traces_phi_clean.json
 =============================================================================
 """
+import argparse
 import json
+from pathlib import Path
 import numpy as np
 
-TRACES_PATH = "/content/traces_phi_clean.json"
+parser = argparse.ArgumentParser(description="Historical EMA detector accounting, not FSM replay")
+parser.add_argument("traces", nargs="?", type=Path,
+                    default=Path(__file__).with_name("traces_phi_clean.json"))
+TRACES_PATH = parser.parse_args().traces
 SHOCK_START, SHOCK_END = 80, 120
 WARMUP_IGNORE = 30
 
@@ -77,7 +82,7 @@ def full_eval(alarm_fn, name, verbose=False):
             "lat": np.mean(lats) if lats else None}
 
 
-print("CONTABILITA' COMPLETA (pre-onset conteggiati)")
+print("CONTABILITA' COMPLETA: detector offline su phi EMA; NON replay del controller")
 print(f"{'detector':<30}{'HIT':<9}{'PRE-ONSET':<11}{'MISS':<8}{'FP':<9}{'latenza'}")
 
 res = {}

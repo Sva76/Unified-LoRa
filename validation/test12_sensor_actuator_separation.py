@@ -90,7 +90,7 @@ def collect_trace(seed, with_shock):
     # controller SEPARATO e NON collegato: osserva soltanto
     obs = OrbitalController(base_lr=BASE_LR)     # nessun link_optimizer/adapters
 
-    phis, losses = [], []
+    phis, losses, raw_phis, ema_phis = [], [], [], []
     model.train()
     for step in range(STEPS):
         shocked = with_shock and (SHOCK_START <= step < SHOCK_END)
@@ -116,13 +116,16 @@ def collect_trace(seed, with_shock):
         obs.step(loss.item())                    # solo osservazione
         # NB: nessun set_rank, nessuna modifica di LR -> attuatore spento
         optimizer.step(); optimizer.zero_grad()
-        phis.append(obs.get_summary()["phi"])
+        summary = obs.get_summary()
+        phis.append(summary["phi"])
+        raw_phis.append(summary["phi_raw"])
+        ema_phis.append(summary["phi_ema"])
         losses.append(float(loss.item()))
 
     del model
     if DEV == "cuda":
         torch.cuda.empty_cache()
-    return {"phi": phis, "loss": losses}
+    return {"phi": phis, "phi_raw": raw_phis, "phi_ema": ema_phis, "loss": losses}
 
 
 print(f"FASE 1 — raccolta tracce (attuatore spento, rank fisso={FIXED_RANK})")

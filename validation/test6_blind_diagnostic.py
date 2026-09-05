@@ -1,3 +1,5 @@
+# September 2026 correction: see validation/corrections_2026_09.md.
+# Pre-correction scripts and logs are preserved at commit 72b4d08b7fbdcbb6d395db1460a4afd8d0d90884.
 """
 =============================================================================
 TEST: φ è un DIAGNOSTICO OPERATIVO? (classificazione in cieco)
@@ -35,8 +37,19 @@ except ModuleNotFoundError:
     import tinker  # noqa
 
 import numpy as np
+try:
+    from .phi_utils import (PhiJumpMonitor as PhiMonitor, completion_example,
+                            new_run_output, write_run_json)
+except ImportError:
+    from phi_utils import (PhiJumpMonitor as PhiMonitor, completion_example,
+                           new_run_output, write_run_json)
 
-os.environ["TINKER_API_KEY"] = "MY KEY"   # <-- inserisci
+# Correction of the historical task, NOT an execution of the proposed v3 stream.
+PROTOCOL_VERSION = "corrected-alignment-v1"
+print("Diagnostic rerun with corrected token alignment; legacy thresholds are unvalidated.")
+
+if not os.environ.get("TINKER_API_KEY"):
+    raise RuntimeError("Set TINKER_API_KEY in the environment before running this experiment")
 BASE_MODEL = "Qwen/Qwen3-8B"
 STEPS = 200
 N_RUNS = 12
@@ -55,6 +68,7 @@ def classify_phi(phi_mean):
     else:
         return "stressed"
 
+OUTPUT = new_run_output("test6_blind_diagnostic.json")
 service = tinker.ServiceClient()
 
 _SUBJECTS = ["cat","dog","car","tree","river","star","book","clock","stone","bird",
@@ -68,18 +82,6 @@ def build_dataset(seed):
     return [(f"Complete: The {a} {r.choice(_RELS)}", r.choice(_SUBJECTS)) for a in subs]
 
 
-class PhiMonitor:
-    def __init__(self, beta=0.8):
-        self.beta = beta; self.ema_jump = 0.0; self.prev_loss = None
-    def update(self, loss, grad_norm=None):
-        if not np.isfinite(loss): return self.ema_jump
-        jump = 0.0 if self.prev_loss is None else max(0.0, loss - self.prev_loss)
-        self.prev_loss = loss
-        self.ema_jump = self.beta*self.ema_jump + (1-self.beta)*jump
-        g = 0.0 if grad_norm is None else grad_norm
-        return self.ema_jump + 0.01*g
-
-
 def dig(obj, *names):
     for n in names:
         if isinstance(obj, dict) and n in obj: return obj[n]
@@ -89,15 +91,14 @@ def dig(obj, *names):
 
 def run_once(seed, lr, tok, tc):
     pairs = build_dataset(seed)
-    phi_mon = PhiMonitor(); phis = []
+    phi_mon = PhiMonitor(); phis = []; log = []
     for step in range(STEPS):
         prompt, target = pairs[step % len(pairs)]
         pi = tok.encode(prompt); ti = tok.encode(" " + target)
-        toks = pi + ti
+        inputs, targets, weights = completion_example(pi, ti)
         datum = tinker.types.Datum(
-            model_input=tinker.types.ModelInput.from_ints(tokens=toks),
-            loss_fn_inputs=dict(weights=[0.0]*len(pi)+[1.0]*len(ti),
-                                target_tokens=toks[1:]+[toks[-1]]),
+            model_input=tinker.types.ModelInput.from_ints(tokens=inputs),
+            loss_fn_inputs=dict(weights=weights, target_tokens=targets),
         )
         fb = tc.forward_backward([datum], "cross_entropy")
         opt = tc.optim_step(tinker.AdamParams(learning_rate=lr))
@@ -105,9 +106,10 @@ def run_once(seed, lr, tok, tc):
         loss = dig(fb_res, "loss"); m = dig(fb_res, "metrics") or {}
         if loss is None:
             loss = m["loss:sum"] if ("loss:sum" in m and m["loss:sum"] is not None) else float("nan")
-        phis.append(phi_mon.update(float(loss),
-                    float(m["grad_norm"]) if isinstance(m, dict) and m.get("grad_norm") is not None else None))
-    return float(np.mean(phis))
+        phi = float(phi_mon.update(float(loss)))
+        phis.append(phi)
+        log.append([step, float(loss), phi, lr])
+    return float(np.mean(phis)), log
 
 
 # ---------------------------------------------------------------------------
@@ -122,17 +124,21 @@ for i in range(N_RUNS):
 
 # Eseguo e salvo SOLO φ + run_id (le etichette restano "in busta chiusa")
 phi_only = {}   # run_id -> phi_mean
+logs = {}
 for run_id, seed, lr in plan:
     tc = service.create_lora_training_client(base_model=BASE_MODEL)
     tok = tc.get_tokenizer()
-    phi_mean = run_once(seed, lr, tok, tc)
+    phi_mean, logs[run_id] = run_once(seed, lr, tok, tc)
     phi_only[run_id] = phi_mean
     print(f"run {run_id:2d} | φ_mean = {phi_mean:.4f}   (etichetta nascosta)")
 
 # ---------------------------------------------------------------------------
 # 2. CLASSIFICAZIONE IN CIECO (solo φ, soglie pre-fissate)
 # ---------------------------------------------------------------------------
-predictions = {rid: classify_phi(phi_only[rid]) for rid in phi_only}
+invalid_counts = {rid: sum(not np.isfinite(row[1]) for row in log)
+                  for rid, log in logs.items()}
+predictions = {rid: "invalid" if invalid_counts[rid] else classify_phi(phi_only[rid])
+               for rid in phi_only}
 
 # ---------------------------------------------------------------------------
 # 3. Rivelo le etichette vere e confronto
@@ -141,7 +147,8 @@ print("\n========== RIVELAZIONE ETICHETTE ==========")
 print(f"{'run':<5}{'φ_mean':<10}{'predetto':<14}{'vero':<14}{'ok'}")
 correct = 0
 classes = ["healthy", "intermediate", "stressed"]
-confusion = {t: {p: 0 for p in classes} for t in classes}
+prediction_classes = classes + ["invalid"]
+confusion = {t: {p: 0 for p in prediction_classes} for t in classes}
 for run_id, seed, lr in plan:
     true_cls = LR_TO_CLASS[lr]
     pred = predictions[run_id]
@@ -153,20 +160,23 @@ for run_id, seed, lr in plan:
 acc = correct / N_RUNS
 print(f"\nAccuratezza: {correct}/{N_RUNS} = {acc*100:.0f}%")
 print("\nConfusion matrix (righe=vero, colonne=predetto):")
-print(f"{'':<14}" + "".join(f"{c:<14}" for c in classes))
+print(f"{'':<14}" + "".join(f"{c:<14}" for c in prediction_classes))
 for t in classes:
-    print(f"{t:<14}" + "".join(f"{confusion[t][p]:<14}" for p in classes))
+    print(f"{t:<14}" + "".join(f"{confusion[t][p]:<14}" for p in prediction_classes))
 
 print("\n================= VERDETTO =================")
-if acc >= 10/12:
-    print("=> φ classifica il regime di stress in cieco: DIAGNOSTICO OPERATIVO supportato.")
+if any(invalid_counts.values()):
+    print("=> Telemetria non finita presente: run invalidi conteggiati come insuccessi; nessun verdetto diagnostico.")
+elif acc >= 10/12:
+    print("=> φ classifica il regime di stress in cieco: accordo descrittivo con classi LR; non validazione operativa.")
 elif acc >= 0.6:
     print("=> φ classifica parzialmente: utile ma con confusione (vedi matrice).")
 else:
     print("=> φ NON classifica affidabilmente: claim diagnostico NON supportato.")
 
-with open("phi_blind_diagnostic.json", "w") as f:
-    json.dump({"plan": [(r, s, l) for r, s, l in plan],
-               "phi": phi_only, "predictions": predictions,
-               "accuracy": acc, "confusion": confusion}, f, indent=2)
-print("\nLog salvato in phi_blind_diagnostic.json")
+write_run_json(OUTPUT, {"protocol_version": PROTOCOL_VERSION,
+                        "confirmatory": False, "plan": plan, "logs": logs,
+                        "phi": phi_only, "predictions": predictions,
+                        "accuracy": acc, "confusion": confusion,
+                        "nonfinite_loss_count": invalid_counts})
+print(f"Diagnostic results saved to {OUTPUT}")

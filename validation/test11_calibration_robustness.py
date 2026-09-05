@@ -105,7 +105,7 @@ def run(seed, sw, with_shock):
         set_rank(model, rank)
         optimizer.step(); optimizer.zero_grad()
         s = ctrl.get_summary()
-        log.append({"step": step, "phi": s["phi"], "state": s["state"]})
+        log.append({"step": step, "phi": s["phi"], "phi_raw": s["phi_raw"], "phi_ema": s["phi_ema"], "state": s["state"]})
 
     del model
     if DEV == "cuda":
