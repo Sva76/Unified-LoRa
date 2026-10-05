@@ -1,3 +1,37 @@
+# Unified-LoRA — current research status
+
+**Update: 5 October 2026.** The original adaptive-controller hypothesis remains
+unsupported in the reported comparisons. The current work concerns measurement
+reliability and whether per-example loss information can predict recovery after
+a drop in generated-answer accuracy. **No recovery predictor or improvement in
+fine-tuning has been validated.**
+
+The new [measurement and monitoring report](validation/monitoring_2026_10/README.md)
+publishes seven original evidence bundles, including incomplete attempts,
+calibration runs, the seed-104 stability check and the prospective seed-107
+mechanics check. Original protocols and logs are preserved with checksums.
+
+| Latest check | Observation | Interpretation |
+|---|---|---|
+| Seed 104, held-out stability ranking | Spearman 0.689; diagnostic loss-level baseline 0.702 | Ranking transfers in this run; no established added value over loss level |
+| Seed 107, 450 healthy updates | Three episodes: two recovered within 50 updates, one did not | Prospective decisions replay exactly; all five rules correct on two of three episodes |
+
+The variability baseline made different errors despite the same correct count.
+These small, within-run counts do not establish predictive equivalence or
+superiority. Non-recovery within 50 updates does not mean permanent damage.
+
+**Start here:** [current report and reproduction instructions](validation/monitoring_2026_10/README.md)
+· [evidence inventory](validation/monitoring_2026_10/evidence_index.json)
+· [seed-104 result](validation/monitoring_2026_10/records/stability_104/esito104.json)
+· [seed-107 result](validation/monitoring_2026_10/records/mechanics_107/esito107.json).
+
+The September account below is retained verbatim as the historical record.
+Its statements about outstanding work describe that stage; the October report
+documents the subsequent monitoring experiments and their separate limitations.
+This update does not claim to complete every historical rerun or missing-log task.
+
+---
+
 # Unified-LoRA → the φ signal
 
 **Status (September 2026).** The original adaptive-controller hypothesis was

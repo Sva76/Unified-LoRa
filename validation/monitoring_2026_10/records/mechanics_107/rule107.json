@@ -1,0 +1,193 @@
+{
+  "rule": {
+    "104_role": "already observed stability holdout; not used for this fitting",
+    "105_role": "exploratory background only, no numerical fitting",
+    "automatic_retries": false,
+    "calibration_bundle_sha256": "58de2e3c7dca7d5d7aedfdcca0fc47ccb7a1b523495ff5228be0be48f1a7f4c2",
+    "calibration_episodes": [
+      {
+        "features": {
+          "low_loss_examples": 0.00026353065043120216,
+          "mean_loss": 0.0,
+          "mean_loss_variability": 0.0,
+          "stable_examples": 0.0
+        },
+        "outcome": "RECOVERED_WITHIN_50",
+        "seed": 103,
+        "state": 130
+      },
+      {
+        "features": {
+          "low_loss_examples": 0.0,
+          "mean_loss": 0.0,
+          "mean_loss_variability": 0.0,
+          "stable_examples": 0.0
+        },
+        "outcome": "RECOVERED_WITHIN_50",
+        "seed": 103,
+        "state": 190
+      },
+      {
+        "features": {
+          "low_loss_examples": 0.0,
+          "mean_loss": 0.008537451801649575,
+          "mean_loss_variability": 0.0,
+          "stable_examples": 0.0
+        },
+        "outcome": "RECOVERED_WITHIN_50",
+        "seed": 103,
+        "state": 300
+      },
+      {
+        "features": {
+          "low_loss_examples": 0.02992740445451924,
+          "mean_loss": 0.02784513046848644,
+          "mean_loss_variability": 0.0,
+          "stable_examples": 0.009105246984405919
+        },
+        "outcome": "RECOVERED_WITHIN_50",
+        "seed": 106,
+        "state": 130
+      },
+      {
+        "features": {
+          "low_loss_examples": 8.003963902169175e-05,
+          "mean_loss": 0.0,
+          "mean_loss_variability": 0.0,
+          "stable_examples": 8.003963902169175e-05
+        },
+        "outcome": "RECOVERED_WITHIN_50",
+        "seed": 106,
+        "state": 270
+      },
+      {
+        "features": {
+          "low_loss_examples": 0.0,
+          "mean_loss": 0.006044182335294402,
+          "mean_loss_variability": 0.0,
+          "stable_examples": 0.0
+        },
+        "outcome": "RECOVERED_WITHIN_50",
+        "seed": 106,
+        "state": 330
+      }
+    ],
+    "calibration_outcome_counts": {
+      "censored_excluded": 2,
+      "not_recovered": 0,
+      "recovered": 6
+    },
+    "calibration_seeds": [
+      103,
+      106
+    ],
+    "comparison": "descriptive counts only; no winner, p-value, population specificity or predictive-superiority verdict on 107",
+    "controller_efficacy_evaluated": false,
+    "decision_time": "first eligible regular state with reference minus current score >= 2; after generation, before next optimizer update",
+    "drop_answers": 2,
+    "episode_spacing": "no new episode through previous onset + 50, inclusive",
+    "excluded_censored_episodes": [
+      {
+        "seed": 103,
+        "state": 370
+      },
+      {
+        "seed": 106,
+        "state": 390
+      }
+    ],
+    "feature_definition": {
+      "always_recover": "constant RECOVERED_WITHIN_50 at the same episode onset",
+      "low_loss_examples": "same as stable_examples with eight selected by low calibration loss",
+      "mean_loss": "max(0, median(token-weighted mean loss, recent5) - median(token-weighted mean loss, past15))",
+      "mean_loss_variability": "max(0, population std(mean loss, recent5) - population std(mean loss, past15))",
+      "per_example_rise": "max(0, median(loss_i[t-4:t]) - median(loss_i[t-19:t-5]))",
+      "stable_examples": "median of per_example_rise for frozen eight stable examples"
+    },
+    "feature_window": "20 states t-19..t, split into 15 past and 5 recent states; identical cutoff for all methods",
+    "frozen_eval_sha256": "7c566ae5f470779b05865982b21ab6948db0b4a422b80c37070fa496472de578",
+    "frozen_utc": "2026-10-05T08:20:21.885375+00:00",
+    "future_leakage_test": "changing all observations after t must leave its prediction unchanged",
+    "future_stress_pilot": {
+      "assignment": "each seed crossed with all three multipliers; fresh trajectory per combination; no checkpoint restore to branch",
+      "base_lr": 0.0001,
+      "development_seeds": [
+        108,
+        109
+      ],
+      "first_exposed_state": 218,
+      "future_validation_seed_pool": [
+        200,
+        201,
+        202,
+        203,
+        204,
+        205,
+        206,
+        207,
+        208,
+        209
+      ],
+      "lr_multipliers": [
+        3,
+        10,
+        30
+      ],
+      "outcomes": "behavioral labels only; numerical stops separate; no guaranteed mix of classes",
+      "planned_runs": 6,
+      "pulse_updates_0based": [
+        217,
+        236
+      ],
+      "restore_base_lr_before_update": 237,
+      "status": "design recorded; no executable pilot and no automatic launch in this notebook",
+      "steps_per_run": 450,
+      "stop_policy": "fixed pilot grid; absent either class => pilot insufficient; no automatic search or validation launch",
+      "validation_design": "number of independent runs, class balance, effect size and success criterion to be frozen after pilot and before any validation run"
+    },
+    "generation_prompt_ids_sha256": "0c8ae4117ea4f1165bd4d1f7bc79fd2e9d10eb01afb2b0b1e6c3f17c979c1729",
+    "horizon_updates": 50,
+    "last_episode_start": 400,
+    "low_loss_indices_0based": [
+      21,
+      9,
+      12,
+      6,
+      18,
+      22,
+      29,
+      30
+    ],
+    "minimum_reference_correct": 8,
+    "no_episodes": "episode mechanics NON_VALUTABILE; report collection completion separately",
+    "prediction_assumption": "an anomaly larger than all six observed recovered calibration episodes predicts no confirmed recovery within 50; otherwise predicts recovery; unvalidated hypothesis",
+    "recovery_confirmation": "two consecutive future regular scores >= reference minus 1, both within 50; use complete future window or CENSORED",
+    "recovery_tolerance_answers": 1,
+    "reference": "median of previous three regular exact-match counts; fixed within episode",
+    "schema": "recovery-mechanics-rule-v1",
+    "seed": 107,
+    "selection": "mean ascending average-tie ranks across seeds 103/106 in states 300..399; lower index breaks selection ties",
+    "stable_indices_0based": [
+      21,
+      9,
+      12,
+      6,
+      8,
+      18,
+      22,
+      29
+    ],
+    "steps": 450,
+    "success": "technical ONLY: complete 450 updates, valid predictions committed before next update, exact offline replay and at least one episode",
+    "threshold_interpretation": "one-class exploratory envelope, not a learned separation of outcomes and not calibrated false-alarm control",
+    "threshold_rule": "for each nonconstant method, maximum score among the six fully observed D=2 calibration episodes; strict exceedance predicts no confirmed recovery",
+    "thresholds": {
+      "low_loss_examples": 0.02992740445451924,
+      "mean_loss": 0.02784513046848644,
+      "mean_loss_variability": 0.0,
+      "stable_examples": 0.009105246984405919
+    },
+    "tokenizer_class": "Qwen2Tokenizer"
+  },
+  "rule_sha256": "c40b2492597adc9dad12062051a8a476dd2d8c8ad2207353d2d362219bd21cfc"
+}

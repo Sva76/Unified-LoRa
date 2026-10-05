@@ -1,0 +1,165 @@
+{
+  "frozen_utc": "2026-09-27T19:57:44.367834+00:00",
+  "protocol": {
+    "analysis": "all scores, medians, observed ranges, correctness frequencies by example, comparison with original generation; no fitted threshold",
+    "design": "one sampling client per saved export, reused for ten passes; fixed interleaving; all 32 examples retained",
+    "documentation": "https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/",
+    "errors": "stop on technical error; retain partial responses; no application retry, replacement export, or automatic restart; SDK may retry transport internally",
+    "limitations": [
+      "sampling variability conditional on these saved exports and current serving",
+      "cannot separate training change from effects introduced by the original export",
+      "ten repeats are not ten independent training runs or a false-alarm estimate"
+    ],
+    "planned_answers": 960,
+    "primary": "whole answer exact match of normalized first-line token strings /32",
+    "repeats_per_state": 10,
+    "runner_sha256": "130986ec5ce7f86d1e30619f43406b49b82eb9b97b4a05c464bdbea079bccc84",
+    "sampler_paths": {
+      "280": "tinker://bdd56d43-6dce-5219-9435-3c8757bd6a2a:train:0/sampler_weights/gen-0280-a",
+      "290": "tinker://bdd56d43-6dce-5219-9435-3c8757bd6a2a:train:0/sampler_weights/gen-0290-a",
+      "300": "tinker://bdd56d43-6dce-5219-9435-3c8757bd6a2a:train:0/sampler_weights/gen-0300-a"
+    },
+    "sampling": {
+      "max_tokens": 40,
+      "num_samples": 1,
+      "temperature": 0
+    },
+    "schedule": [
+      {
+        "round": 1,
+        "state": 280
+      },
+      {
+        "round": 1,
+        "state": 290
+      },
+      {
+        "round": 1,
+        "state": 300
+      },
+      {
+        "round": 2,
+        "state": 290
+      },
+      {
+        "round": 2,
+        "state": 300
+      },
+      {
+        "round": 2,
+        "state": 280
+      },
+      {
+        "round": 3,
+        "state": 300
+      },
+      {
+        "round": 3,
+        "state": 280
+      },
+      {
+        "round": 3,
+        "state": 290
+      },
+      {
+        "round": 4,
+        "state": 280
+      },
+      {
+        "round": 4,
+        "state": 300
+      },
+      {
+        "round": 4,
+        "state": 290
+      },
+      {
+        "round": 5,
+        "state": 300
+      },
+      {
+        "round": 5,
+        "state": 290
+      },
+      {
+        "round": 5,
+        "state": 280
+      },
+      {
+        "round": 6,
+        "state": 290
+      },
+      {
+        "round": 6,
+        "state": 280
+      },
+      {
+        "round": 6,
+        "state": 300
+      },
+      {
+        "round": 7,
+        "state": 280
+      },
+      {
+        "round": 7,
+        "state": 290
+      },
+      {
+        "round": 7,
+        "state": 300
+      },
+      {
+        "round": 8,
+        "state": 290
+      },
+      {
+        "round": 8,
+        "state": 300
+      },
+      {
+        "round": 8,
+        "state": 280
+      },
+      {
+        "round": 9,
+        "state": 300
+      },
+      {
+        "round": 9,
+        "state": 280
+      },
+      {
+        "round": 9,
+        "state": 290
+      },
+      {
+        "round": 10,
+        "state": 280
+      },
+      {
+        "round": 10,
+        "state": 300
+      },
+      {
+        "round": 10,
+        "state": 290
+      }
+    ],
+    "schema": "phi-export-recheck-v1",
+    "secondary": "correct integer in required position /192; invalid format contributes zero",
+    "selection": "states selected after observing the dip; diagnostic follow-up, not independent confirmatory evidence",
+    "source_file_sha256": "606d0b034bc6199ededbd2517f849da0eef7f4e2701c5d6987c57b516395cb46",
+    "source_payload_sha256": "aa6602f489c0ebff6db454f7374317101bfccd3415bf891bb5975bd66878faf8",
+    "source_protocol_sha256": "b32d36e016d2de63254c74a6583b4142ec4621a128175fec959c7b15232e51c6",
+    "states": [
+      280,
+      290,
+      300
+    ],
+    "tinker_version": "0.29.0",
+    "training_updates": 0
+  },
+  "protocol_sha256": "d9ea2799626b59971d7ddef4a1a1fc7e0e498e378f1c3375aca7fddce9dcdb64",
+  "status_at_freeze": "NOT_RUN_LIVE"
+}

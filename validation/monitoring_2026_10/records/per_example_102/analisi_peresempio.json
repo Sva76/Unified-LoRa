@@ -1,0 +1,435 @@
+{
+  "confronto_media_vs_esempio": {
+    "mad_residui_della_media_tardiva": 0.0003157991764506131,
+    "mad_residui_mediana_degli_esempi_tardiva": 2.8933690499999954e-05,
+    "rapporto": 0.09162053816984798
+  },
+  "correlazione_rumore_vs_livello": 0.883674599596382,
+  "passi_validi": 400,
+  "regole_sha256": "b0aadddf05aa8c489a7b03b3146b35f0f99cc585c224d3226ccd9b661f527e0d",
+  "rumore_di_misura": {
+    "50": {
+      "estensione_della_media": 0.0,
+      "estensione_massima_per_esempio": 0.0,
+      "estensione_mediana_per_esempio": 0.0,
+      "estensione_relativa_mediana_pct": 0.0,
+      "misure": 5,
+      "per_esempio": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "150": {
+      "estensione_della_media": 0.0,
+      "estensione_massima_per_esempio": 0.0,
+      "estensione_mediana_per_esempio": 0.0,
+      "estensione_relativa_mediana_pct": 0.0,
+      "misure": 5,
+      "per_esempio": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "250": {
+      "estensione_della_media": 0.0,
+      "estensione_massima_per_esempio": 0.0,
+      "estensione_mediana_per_esempio": 0.0,
+      "estensione_relativa_mediana_pct": 0.0,
+      "misure": 5,
+      "per_esempio": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "350": {
+      "estensione_della_media": 0.0,
+      "estensione_massima_per_esempio": 0.0,
+      "estensione_mediana_per_esempio": 0.0,
+      "estensione_relativa_mediana_pct": 0.0,
+      "misure": 5,
+      "per_esempio": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "scopo": "Misurare il rumore per esempio su una traiettoria sana; nessun rilevatore viene testato",
+  "stabilita_per_esempio": [
+    {
+      "esempio": 0,
+      "loss_mediana": 0.0438485330475,
+      "loss_mediana_tardiva": 0.001729060995,
+      "mad_relativa_tardiva_pct": 1.133266527708584,
+      "mad_residui_finestra_tardiva": 1.9594869499999998e-05,
+      "mad_residui_intero_run": 0.0006651775239999972
+    },
+    {
+      "esempio": 1,
+      "loss_mediana": 0.0023691538725,
+      "loss_mediana_tardiva": 0.0009799154495,
+      "mad_relativa_tardiva_pct": 1.685535064114737,
+      "mad_residui_finestra_tardiva": 1.651681850000004e-05,
+      "mad_residui_intero_run": 3.6964448000000006e-05
+    },
+    {
+      "esempio": 2,
+      "loss_mediana": 0.0034134787214999997,
+      "loss_mediana_tardiva": 0.000454954887,
+      "mad_relativa_tardiva_pct": 0.4352805204617985,
+      "mad_residui_finestra_tardiva": 1.980329999999987e-06,
+      "mad_residui_intero_run": 0.0002003651885000002
+    },
+    {
+      "esempio": 3,
+      "loss_mediana": 0.054414802257999995,
+      "loss_mediana_tardiva": 0.0090761575415,
+      "mad_relativa_tardiva_pct": 5.049730592537229,
+      "mad_residui_finestra_tardiva": 0.0004583215040000004,
+      "mad_residui_intero_run": 0.002461988332499986
+    },
+    {
+      "esempio": 4,
+      "loss_mediana": 0.06270121728,
+      "loss_mediana_tardiva": 0.0094691016015,
+      "mad_relativa_tardiva_pct": 0.8296381252003758,
+      "mad_residui_finestra_tardiva": 7.855927700000336e-05,
+      "mad_residui_intero_run": 0.0024193686889999993
+    },
+    {
+      "esempio": 5,
+      "loss_mediana": 0.0376873203595,
+      "loss_mediana_tardiva": 0.011645202101,
+      "mad_relativa_tardiva_pct": 1.6625990499844887,
+      "mad_residui_finestra_tardiva": 0.00019361301949999974,
+      "mad_residui_intero_run": 0.0004249351305000001
+    },
+    {
+      "esempio": 6,
+      "loss_mediana": 0.0026251209115,
+      "loss_mediana_tardiva": 0.0004009881095,
+      "mad_relativa_tardiva_pct": 0.794085516393603,
+      "mad_residui_finestra_tardiva": 3.1841885000000213e-06,
+      "mad_residui_intero_run": 5.5893467500000004e-05
+    },
+    {
+      "esempio": 7,
+      "loss_mediana": 0.0439766317735,
+      "loss_mediana_tardiva": 0.011681706369,
+      "mad_relativa_tardiva_pct": 2.7578352324873414,
+      "mad_residui_finestra_tardiva": 0.00032216221399999976,
+      "mad_residui_intero_run": 0.002507067703
+    },
+    {
+      "esempio": 8,
+      "loss_mediana": 0.0023181455164999996,
+      "loss_mediana_tardiva": 0.0002235952425,
+      "mad_relativa_tardiva_pct": 3.504023458817548,
+      "mad_residui_finestra_tardiva": 7.834829749999984e-06,
+      "mad_residui_intero_run": 2.6495418000000034e-05
+    },
+    {
+      "esempio": 9,
+      "loss_mediana": 0.000556725035,
+      "loss_mediana_tardiva": 6.23462275e-05,
+      "mad_relativa_tardiva_pct": 1.6280231229708375,
+      "mad_residui_finestra_tardiva": 1.015011000000003e-06,
+      "mad_residui_intero_run": 4.684694500000001e-06
+    },
+    {
+      "esempio": 10,
+      "loss_mediana": 0.1790664859805,
+      "loss_mediana_tardiva": 0.0924713837325,
+      "mad_relativa_tardiva_pct": 2.8165858783776585,
+      "mad_residui_finestra_tardiva": 0.0026045359357500103,
+      "mad_residui_intero_run": 0.00464143951549998
+    },
+    {
+      "esempio": 11,
+      "loss_mediana": 0.014504724302,
+      "loss_mediana_tardiva": 0.00032908625899999997,
+      "mad_relativa_tardiva_pct": 2.5156276731688187,
+      "mad_residui_finestra_tardiva": 8.278585000000011e-06,
+      "mad_residui_intero_run": 2.6953444500000037e-05
+    },
+    {
+      "esempio": 12,
+      "loss_mediana": 0.0034728344225,
+      "loss_mediana_tardiva": 7.0017451e-05,
+      "mad_relativa_tardiva_pct": 1.3038949389917074,
+      "mad_residui_finestra_tardiva": 9.129539999999987e-07,
+      "mad_residui_intero_run": 0.00023164068849999993
+    },
+    {
+      "esempio": 13,
+      "loss_mediana": 0.0621267767345,
+      "loss_mediana_tardiva": 0.007149681626,
+      "mad_relativa_tardiva_pct": 0.5353037170329508,
+      "mad_residui_finestra_tardiva": 3.827251149999991e-05,
+      "mad_residui_intero_run": 0.0013599311969999823
+    },
+    {
+      "esempio": 14,
+      "loss_mediana": 0.007824605452,
+      "loss_mediana_tardiva": 0.0014530053655,
+      "mad_relativa_tardiva_pct": 3.2248190965128374,
+      "mad_residui_finestra_tardiva": 4.6856794500000146e-05,
+      "mad_residui_intero_run": 0.00023068554849999998
+    },
+    {
+      "esempio": 15,
+      "loss_mediana": 0.094892373822,
+      "loss_mediana_tardiva": 0.002539642658,
+      "mad_relativa_tardiva_pct": 3.636601756119983,
+      "mad_residui_finestra_tardiva": 9.235668950000021e-05,
+      "mad_residui_intero_run": 0.002967516588999998
+    },
+    {
+      "esempio": 16,
+      "loss_mediana": 0.128602989718,
+      "loss_mediana_tardiva": 0.009453271664,
+      "mad_relativa_tardiva_pct": 4.5715621465292475,
+      "mad_residui_finestra_tardiva": 0.0004321621889999995,
+      "mad_residui_intero_run": 0.001806119807
+    },
+    {
+      "esempio": 17,
+      "loss_mediana": 0.0058635743185000005,
+      "loss_mediana_tardiva": 0.0010264144985,
+      "mad_relativa_tardiva_pct": 0.8348634019222173,
+      "mad_residui_finestra_tardiva": 8.569158999999967e-06,
+      "mad_residui_intero_run": 0.0001311060735
+    },
+    {
+      "esempio": 18,
+      "loss_mediana": 0.00351764869,
+      "loss_mediana_tardiva": 0.00017794641349999998,
+      "mad_relativa_tardiva_pct": 4.5756387217098915,
+      "mad_residui_finestra_tardiva": 8.142184999999997e-06,
+      "mad_residui_intero_run": 0.00016615164600000004
+    },
+    {
+      "esempio": 19,
+      "loss_mediana": 0.0086449652585,
+      "loss_mediana_tardiva": 0.0020759100345,
+      "mad_relativa_tardiva_pct": 5.511353820665783,
+      "mad_residui_finestra_tardiva": 0.00011441074700000012,
+      "mad_residui_intero_run": 0.0004602157465
+    },
+    {
+      "esempio": 20,
+      "loss_mediana": 0.0190653411735,
+      "loss_mediana_tardiva": 0.001321756524,
+      "mad_relativa_tardiva_pct": 6.634851722509824,
+      "mad_residui_finestra_tardiva": 8.769658549999997e-05,
+      "mad_residui_intero_run": 0.0004164669270000002
+    },
+    {
+      "esempio": 21,
+      "loss_mediana": 0.014041600701,
+      "loss_mediana_tardiva": 0.0001680070055,
+      "mad_relativa_tardiva_pct": 1.096715874743686,
+      "mad_residui_finestra_tardiva": 1.8425594999999974e-06,
+      "mad_residui_intero_run": 0.0008153406375000431
+    },
+    {
+      "esempio": 22,
+      "loss_mediana": 0.0014951390825,
+      "loss_mediana_tardiva": 0.0001329309095,
+      "mad_relativa_tardiva_pct": 0.5941454872841284,
+      "mad_residui_finestra_tardiva": 7.898029999999986e-07,
+      "mad_residui_intero_run": 2.371340300000001e-05
+    },
+    {
+      "esempio": 23,
+      "loss_mediana": 0.165304835092,
+      "loss_mediana_tardiva": 0.033899087694999996,
+      "mad_relativa_tardiva_pct": 7.8875848933078485,
+      "mad_residui_finestra_tardiva": 0.0026738193199999996,
+      "mad_residui_intero_run": 0.0018611093564999959
+    },
+    {
+      "esempio": 24,
+      "loss_mediana": 0.0045843018885,
+      "loss_mediana_tardiva": 0.0010739839745,
+      "mad_relativa_tardiva_pct": 1.7564137312925954,
+      "mad_residui_finestra_tardiva": 1.8863601999999965e-05,
+      "mad_residui_intero_run": 0.0001324851175000001
+    },
+    {
+      "esempio": 25,
+      "loss_mediana": 0.008007957412499999,
+      "loss_mediana_tardiva": 0.0013083106765,
+      "mad_relativa_tardiva_pct": 3.5701434559072043,
+      "mad_residui_finestra_tardiva": 4.670856800000002e-05,
+      "mad_residui_intero_run": 0.0004732520470000002
+    },
+    {
+      "esempio": 26,
+      "loss_mediana": 0.0234881394425,
+      "loss_mediana_tardiva": 0.001532672919,
+      "mad_relativa_tardiva_pct": 8.861717449057373,
+      "mad_residui_finestra_tardiva": 0.00013582114349999997,
+      "mad_residui_intero_run": 0.0006003286087499992
+    },
+    {
+      "esempio": 27,
+      "loss_mediana": 0.012904989436500001,
+      "loss_mediana_tardiva": 0.0065729676215,
+      "mad_relativa_tardiva_pct": 2.955650547623799,
+      "mad_residui_finestra_tardiva": 0.00019427395349999973,
+      "mad_residui_intero_run": 0.0006593965495000002
+    },
+    {
+      "esempio": 28,
+      "loss_mediana": 0.017450463729,
+      "loss_mediana_tardiva": 0.0005964349675,
+      "mad_relativa_tardiva_pct": 0.09617175907782372,
+      "mad_residui_finestra_tardiva": 5.736019999999961e-07,
+      "mad_residui_intero_run": 0.00040628963949999983
+    },
+    {
+      "esempio": 29,
+      "loss_mediana": 0.003351749886,
+      "loss_mediana_tardiva": 0.00014088754400000002,
+      "mad_relativa_tardiva_pct": 2.435206408311018,
+      "mad_residui_finestra_tardiva": 3.430902500000005e-06,
+      "mad_residui_intero_run": 2.2416776e-05
+    },
+    {
+      "esempio": 30,
+      "loss_mediana": 0.014176585302,
+      "loss_mediana_tardiva": 0.0127841946075,
+      "mad_relativa_tardiva_pct": 3.5483137806262466,
+      "mad_residui_finestra_tardiva": 0.00045362333900000006,
+      "mad_residui_intero_run": 0.0005304994964999998
+    },
+    {
+      "esempio": 31,
+      "loss_mediana": 0.0128543882815,
+      "loss_mediana_tardiva": 0.000264188577,
+      "mad_relativa_tardiva_pct": 4.2021355071684185,
+      "mad_residui_finestra_tardiva": 1.1101561999999978e-05,
+      "mad_residui_intero_run": 1.3907321000000033e-05
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "congelate_utc": "2026-09-26T08:10:55.222797+00:00",
+  "esempi_controllo": 32,
+  "finestra_tardiva": [
+    300,
+    400
+  ],
+  "nessuna_ritaratura": "Nessun parametro viene modificato dopo aver visto queste traiettorie.",
+  "non_scopo": "Nessuna soglia, nessun braccio sotto stress, nessuna selezione di esempi basata su dati sotto stress",
+  "passi": 400,
+  "passi_con_ripetizione": [
+    50,
+    150,
+    250,
+    350
+  ],
+  "protocollo_sha256": "9dde5141793b417676b0de3775d5321e26daeeec907fa12ef0456fbf1a79f611",
+  "regola_di_selezione": "La stabilita di un esempio si stabilisce solo su run sani. Nessun esempio puo essere scelto guardando come si muove sotto stress.",
+  "ripetizioni_per_passo": 4,
+  "runner_sha256": "d7339bb9fc448137aee46dc9587d3e18d471a4d3644f147dfbd107d78af287e5",
+  "scopo": "Misurare il rumore per esempio su una traiettoria sana; nessun rilevatore viene testato",
+  "seed": 102
+}

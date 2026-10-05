@@ -1,0 +1,189 @@
+{
+  "bundles": [
+    {
+      "archive": "evidence/per_example_102.json.gz",
+      "archive_bytes": 685540,
+      "archive_sha256": "1954108367d2b8be69c5fc98051a1233718211f7a4399fdfa7bb23490d57e4b6",
+      "embedded_files": 11,
+      "id": "per_example_102",
+      "original_filename": "Risultati_peresempio(1).json",
+      "source_bytes": 4731971,
+      "source_schema": "phi-peresempio-v1",
+      "source_sha256": "00090f67876363cd06d7bc0ba7a15b3ff70a3c8ac64220ba8dc64339d5f6b125"
+    },
+    {
+      "archive": "evidence/endpoint_v2_stopped.json.gz",
+      "archive_bytes": 900419,
+      "archive_sha256": "9456b1151c21523f34c4123975f4321099da74bbf35af68f73cc0dc5959c81ce",
+      "embedded_files": 18,
+      "id": "endpoint_v2_stopped",
+      "original_filename": "Risultati_endpoint_v2.json",
+      "source_bytes": 6785266,
+      "source_schema": "phi-endpoint-v2",
+      "source_sha256": "a701b699f5e721199bb9d686b15e9a0f006f384911854c8ec0102448c3ddba83"
+    },
+    {
+      "archive": "evidence/healthy_105.json.gz",
+      "archive_bytes": 760620,
+      "archive_sha256": "f3e490dc16cce3a5cf30c9751d33a1c0ec9c8cd20f9731ab96d360fe72179f9c",
+      "embedded_files": 24,
+      "id": "healthy_105",
+      "original_filename": "Risultati_verifica_sano_v3(1).json",
+      "source_bytes": 5847818,
+      "source_schema": "phi-healthy-feasibility-v3",
+      "source_sha256": "606d0b034bc6199ededbd2517f849da0eef7f4e2701c5d6987c57b516395cb46"
+    },
+    {
+      "archive": "evidence/recheck_290.json.gz",
+      "archive_bytes": 377343,
+      "archive_sha256": "1d67111ca91a1dc7b90307f194bcad78ed418b3b735648f2aa2427a743994924",
+      "embedded_files": 4,
+      "id": "recheck_290",
+      "original_filename": "Risultati_controllo_calo_290(1).json",
+      "source_bytes": 3064395,
+      "source_schema": "phi-export-recheck-bundle-v1",
+      "source_sha256": "35d7791c37426e839c7f0971b03d0694e4e5a08beec0354e6f1d915075cb7dde"
+    },
+    {
+      "archive": "evidence/calibration_103_106.json.gz",
+      "archive_bytes": 1561784,
+      "archive_sha256": "53554595f6ea66cd96bf036ae376f4cc2eca65826786098c218a3c395c439133",
+      "embedded_files": 301,
+      "id": "calibration_103_106",
+      "original_filename": "Risultati_calibrazione_recupero_103_106(1).json",
+      "source_bytes": 14279954,
+      "source_schema": "recovery-calibration-bundle-v1",
+      "source_sha256": "58de2e3c7dca7d5d7aedfdcca0fc47ccb7a1b523495ff5228be0be48f1a7f4c2"
+    },
+    {
+      "archive": "evidence/stability_104.json.gz",
+      "archive_bytes": 512679,
+      "archive_sha256": "8cff4d8b307daccfc4b72a55b47c6adec1c372f0e19bebd9323c6277b78568d4",
+      "embedded_files": 154,
+      "id": "stability_104",
+      "original_filename": "Risultati_verifica_stabilita_104.json",
+      "source_bytes": 4991365,
+      "source_schema": "blind-stability-104-bundle-v1",
+      "source_sha256": "219d45ca012dae1d9d81ca8b35b8bc55f556b929d610a04a1854d93103400cd2"
+    },
+    {
+      "archive": "evidence/mechanics_107.json.gz",
+      "archive_bytes": 330702,
+      "archive_sha256": "e9b71b0caf7a3aa1586f978bbea292da90a399c18a043e446ba7caba98942d4b",
+      "embedded_files": 183,
+      "id": "mechanics_107",
+      "original_filename": "Risultati_meccanica_107(2).json",
+      "source_bytes": 5518632,
+      "source_schema": "recovery-mechanics-107-bundle-v1",
+      "source_sha256": "b2f2eafb5da8da8f2699ddacef8ccb0637dc510e03d478c689db37d0aa027de2"
+    }
+  ],
+  "exposed_copies": [
+    {
+      "bundle": "per_example_102",
+      "embedded_path": "analisi_peresempio.json",
+      "path": "records/per_example_102/analisi_peresempio.json",
+      "sha256": "eac20eda0d5607c45d9254ef632cba98c239b793fadcbb1975d607b8704c2380"
+    },
+    {
+      "bundle": "per_example_102",
+      "embedded_path": "regole_peresempio.json",
+      "path": "records/per_example_102/regole_peresempio.json",
+      "sha256": "b0aadddf05aa8c489a7b03b3146b35f0f99cc585c224d3226ccd9b661f527e0d"
+    },
+    {
+      "bundle": "endpoint_v2_stopped",
+      "embedded_path": "analisi_endpoint.json",
+      "path": "records/endpoint_v2_stopped/analisi_endpoint.json",
+      "sha256": "5cc6288d7b30e0a5f221e8b1fd951f25e53db2bf10408991e7fb1dea729adaaa"
+    },
+    {
+      "bundle": "healthy_105",
+      "embedded_path": "analisi_sano.json",
+      "path": "records/healthy_105/analisi_sano.json",
+      "sha256": "4f13cb79eea6d91e25c74bd8b500c7430e3a304f0d92a4b4aee5c4c339dd8e34"
+    },
+    {
+      "bundle": "recheck_290",
+      "embedded_path": "protocollo.json",
+      "path": "records/recheck_290/protocollo.json",
+      "sha256": "6bb0c5116b5fcf6ffc62b1afbee2eee556d70d01c1dc0c5cbeb586ab6a87bcbd"
+    },
+    {
+      "bundle": "calibration_103_106",
+      "embedded_path": "analisi_103.json",
+      "path": "records/calibration_103_106/analisi_103.json",
+      "sha256": "84040f81abff511d3de882a7dfe562403b46b830452c084b768a0a02f4ade8d2"
+    },
+    {
+      "bundle": "calibration_103_106",
+      "embedded_path": "analisi_106.json",
+      "path": "records/calibration_103_106/analisi_106.json",
+      "sha256": "f42ce46335c16f84138a4feae7206d602e6587b40c45c5946cd284e7de1a1296"
+    },
+    {
+      "bundle": "stability_104",
+      "embedded_path": "esito104.json",
+      "path": "records/stability_104/esito104.json",
+      "sha256": "42dec87b9312c4a2187a19caddb66280c9e7c29976f61eb064347423a93bdf9e"
+    },
+    {
+      "bundle": "stability_104",
+      "embedded_path": "rule104.json",
+      "path": "records/stability_104/rule104.json",
+      "sha256": "02dc8a752682f365ee636d82d3cd1a96ca27d78e74c2f6141e6428ed880a3c37"
+    },
+    {
+      "bundle": "stability_104",
+      "embedded_path": "plan104.json",
+      "path": "records/stability_104/plan104.json",
+      "sha256": "68e3aae2d232570298e3fbbef668c00db33db0d855240ae30f7ba0dfedf6e28e"
+    },
+    {
+      "bundle": "stability_104",
+      "embedded_path": "LEGGIMI.md",
+      "path": "records/stability_104/LEGGIMI.md",
+      "sha256": "3d3b4d3edfb91ddf93fa2491474733f3df07187dbe125e072160fdb5231dac6c"
+    },
+    {
+      "bundle": "stability_104",
+      "embedded_path": "analyze104.py",
+      "path": "records/stability_104/analyze104.py",
+      "sha256": "9f7877356627494a1e6ff041b9c90c134e8c5e8d49d590cbd1b66a55c4250235"
+    },
+    {
+      "bundle": "mechanics_107",
+      "embedded_path": "esito107.json",
+      "path": "records/mechanics_107/esito107.json",
+      "sha256": "0ea5d5fbb4f409c27ce22681f27fcaa7a1a933dbe82d08e740daf9164157dae3"
+    },
+    {
+      "bundle": "mechanics_107",
+      "embedded_path": "rule107.json",
+      "path": "records/mechanics_107/rule107.json",
+      "sha256": "4595d1244f9f8a29742e2ca31ee7cbd7fd1926185dd7347de19d3cbfbcdf8cb0"
+    },
+    {
+      "bundle": "mechanics_107",
+      "embedded_path": "plan107.json",
+      "path": "records/mechanics_107/plan107.json",
+      "sha256": "31923d2d9fb4c87be30f125ac24700ce7009c4d7d920086c2b87b53082272eae"
+    },
+    {
+      "bundle": "mechanics_107",
+      "embedded_path": "PROTOCOLLO_107.md",
+      "path": "records/mechanics_107/PROTOCOLLO_107.md",
+      "sha256": "0722d461a16b61737bb3988cc55cc2341cade7db32a27b5aaa8d59882bf12d58"
+    },
+    {
+      "bundle": "mechanics_107",
+      "embedded_path": "rules107.py",
+      "path": "records/mechanics_107/rules107.py",
+      "sha256": "6435f59338a11b4182dcec70c4afb72ac651adca758b501347c43e50e563041e"
+    }
+  ],
+  "note": "Original uploaded JSON bytes are preserved inside deterministic gzip archives. Publication follows the experiments; recorded freeze dates are not independent public timestamps.",
+  "prior_repository_commit": "26966fe9aad40d4f77e8b23ecf27510281b93acb",
+  "publication_date": "2026-10-05",
+  "schema": "monitoring-evidence-index-v1"
+}

@@ -1,3 +1,20 @@
+# Validation evidence — October 2026 update
+
+The new [measurement and recovery-monitoring report](monitoring_2026_10/README.md)
+contains seven original evidence bundles, frozen protocols, calibration data
+and the seed-104/107 results. It distinguishes repeatability, cross-run example
+stability and prospective recovery prediction. The latter remains unvalidated;
+the new evidence does not rehabilitate the original adaptive controller.
+
+Run `python validation/monitoring_2026_10/verify_evidence.py --replay` from the
+repository root to verify checksums and reproduce the 104/107 analyses offline.
+No API key, GPU or training call is needed for that check.
+
+The previous evidence index and its qualifications follow **verbatim**.
+Original logs, figures, code and historical protocols remain in place.
+
+---
+
 # validation/ — evidence bundle
 
 > **5 September 2026 correction notice.** This document includes historical

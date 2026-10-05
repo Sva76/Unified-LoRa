@@ -1,0 +1,553 @@
+{
+  "completed_updates": 400,
+  "detector_validated": false,
+  "generation_count": 41,
+  "note": "Range over three repetitions is descriptive; zero at the floor does not establish usable repeatability. Secondary results are not a replacement for the frozen primary endpoint.",
+  "operational_threshold_selected": false,
+  "primary_final_count": 31,
+  "primary_headroom": {
+    "2": {
+      "observed_states_with_at_least_D_correct": [
+        50,
+        60,
+        70,
+        80,
+        90,
+        100,
+        110,
+        120,
+        130,
+        140,
+        150,
+        160,
+        170,
+        180,
+        190,
+        200,
+        210,
+        220,
+        230,
+        240,
+        250,
+        260,
+        270,
+        280,
+        290,
+        300,
+        310,
+        320,
+        330,
+        340,
+        350,
+        360,
+        370,
+        380,
+        390,
+        400
+      ]
+    },
+    "4": {
+      "observed_states_with_at_least_D_correct": [
+        80,
+        90,
+        100,
+        110,
+        120,
+        130,
+        140,
+        150,
+        160,
+        170,
+        180,
+        190,
+        200,
+        210,
+        220,
+        230,
+        240,
+        250,
+        260,
+        270,
+        280,
+        290,
+        300,
+        310,
+        320,
+        330,
+        340,
+        350,
+        360,
+        370,
+        380,
+        390,
+        400
+      ]
+    },
+    "8": {
+      "observed_states_with_at_least_D_correct": [
+        90,
+        100,
+        110,
+        120,
+        130,
+        140,
+        150,
+        160,
+        170,
+        180,
+        190,
+        200,
+        210,
+        220,
+        230,
+        240,
+        250,
+        260,
+        270,
+        280,
+        290,
+        300,
+        310,
+        320,
+        330,
+        340,
+        350,
+        360,
+        370,
+        380,
+        390,
+        400
+      ]
+    }
+  },
+  "primary_max_count": 31,
+  "primary_observed_support": "NONZERO_OBSERVED",
+  "reason": null,
+  "repeatability": [
+    {
+      "answer_changes_across_exports": [],
+      "answer_changes_same_sampler": [],
+      "correctness_flips_across_exports": [],
+      "correctness_flips_same_sampler": [],
+      "exact_counts": [
+        0,
+        0,
+        0
+      ],
+      "exact_range_count": 0,
+      "interpretation": "descriptive repeatability at this state; no universal determinism or false-alarm claim",
+      "position_counts": [
+        0,
+        0,
+        0
+      ],
+      "position_flips_across_exports": 0,
+      "position_flips_same_sampler": 0,
+      "position_range_count": 0,
+      "primary_support": "AT_FLOOR",
+      "state": 0
+    },
+    {
+      "answer_changes_across_exports": [
+        1,
+        2,
+        3,
+        4,
+        7,
+        18,
+        19,
+        21,
+        26,
+        30
+      ],
+      "answer_changes_same_sampler": [
+        1,
+        2,
+        3,
+        4,
+        10,
+        12,
+        18,
+        19,
+        26
+      ],
+      "correctness_flips_across_exports": [],
+      "correctness_flips_same_sampler": [],
+      "exact_counts": [
+        0,
+        0,
+        0
+      ],
+      "exact_range_count": 0,
+      "interpretation": "descriptive repeatability at this state; no universal determinism or false-alarm claim",
+      "position_counts": [
+        30,
+        29,
+        28
+      ],
+      "position_flips_across_exports": 2,
+      "position_flips_same_sampler": 1,
+      "position_range_count": 2,
+      "primary_support": "AT_FLOOR",
+      "state": 40
+    },
+    {
+      "answer_changes_across_exports": [],
+      "answer_changes_same_sampler": [
+        4,
+        23,
+        26
+      ],
+      "correctness_flips_across_exports": [],
+      "correctness_flips_same_sampler": [
+        4
+      ],
+      "exact_counts": [
+        8,
+        9,
+        8
+      ],
+      "exact_range_count": 1,
+      "interpretation": "descriptive repeatability at this state; no universal determinism or false-alarm claim",
+      "position_counts": [
+        151,
+        151,
+        151
+      ],
+      "position_flips_across_exports": 0,
+      "position_flips_same_sampler": 2,
+      "position_range_count": 0,
+      "primary_support": "NONZERO_OBSERVED",
+      "state": 100
+    },
+    {
+      "answer_changes_across_exports": [],
+      "answer_changes_same_sampler": [
+        23
+      ],
+      "correctness_flips_across_exports": [],
+      "correctness_flips_same_sampler": [],
+      "exact_counts": [
+        25,
+        25,
+        25
+      ],
+      "exact_range_count": 0,
+      "interpretation": "descriptive repeatability at this state; no universal determinism or false-alarm claim",
+      "position_counts": [
+        185,
+        184,
+        185
+      ],
+      "position_flips_across_exports": 0,
+      "position_flips_same_sampler": 1,
+      "position_range_count": 1,
+      "primary_support": "NONZERO_OBSERVED",
+      "state": 200
+    },
+    {
+      "answer_changes_across_exports": [
+        11
+      ],
+      "answer_changes_same_sampler": [
+        11
+      ],
+      "correctness_flips_across_exports": [
+        11
+      ],
+      "correctness_flips_same_sampler": [
+        11
+      ],
+      "exact_counts": [
+        25,
+        24,
+        24
+      ],
+      "exact_range_count": 1,
+      "interpretation": "descriptive repeatability at this state; no universal determinism or false-alarm claim",
+      "position_counts": [
+        183,
+        182,
+        182
+      ],
+      "position_flips_across_exports": 1,
+      "position_flips_same_sampler": 1,
+      "position_range_count": 1,
+      "primary_support": "NONZERO_OBSERVED",
+      "state": 300
+    },
+    {
+      "answer_changes_across_exports": [],
+      "answer_changes_same_sampler": [],
+      "correctness_flips_across_exports": [],
+      "correctness_flips_same_sampler": [],
+      "exact_counts": [
+        31,
+        31,
+        31
+      ],
+      "exact_range_count": 0,
+      "interpretation": "descriptive repeatability at this state; no universal determinism or false-alarm claim",
+      "position_counts": [
+        191,
+        191,
+        191
+      ],
+      "position_flips_across_exports": 0,
+      "position_flips_same_sampler": 0,
+      "position_range_count": 0,
+      "primary_support": "NONZERO_OBSERVED",
+      "state": 400
+    }
+  ],
+  "schema": "phi-healthy-feasibility-v3",
+  "status": "COMPLETE",
+  "trajectory": [
+    {
+      "exact_count": 0,
+      "format_count": 1,
+      "position_count": 0,
+      "state": 0
+    },
+    {
+      "exact_count": 0,
+      "format_count": 32,
+      "position_count": 6,
+      "state": 10
+    },
+    {
+      "exact_count": 0,
+      "format_count": 32,
+      "position_count": 8,
+      "state": 20
+    },
+    {
+      "exact_count": 0,
+      "format_count": 32,
+      "position_count": 18,
+      "state": 30
+    },
+    {
+      "exact_count": 0,
+      "format_count": 32,
+      "position_count": 30,
+      "state": 40
+    },
+    {
+      "exact_count": 2,
+      "format_count": 32,
+      "position_count": 58,
+      "state": 50
+    },
+    {
+      "exact_count": 2,
+      "format_count": 32,
+      "position_count": 74,
+      "state": 60
+    },
+    {
+      "exact_count": 3,
+      "format_count": 32,
+      "position_count": 99,
+      "state": 70
+    },
+    {
+      "exact_count": 5,
+      "format_count": 32,
+      "position_count": 136,
+      "state": 80
+    },
+    {
+      "exact_count": 14,
+      "format_count": 32,
+      "position_count": 154,
+      "state": 90
+    },
+    {
+      "exact_count": 8,
+      "format_count": 32,
+      "position_count": 151,
+      "state": 100
+    },
+    {
+      "exact_count": 13,
+      "format_count": 32,
+      "position_count": 160,
+      "state": 110
+    },
+    {
+      "exact_count": 17,
+      "format_count": 32,
+      "position_count": 170,
+      "state": 120
+    },
+    {
+      "exact_count": 22,
+      "format_count": 32,
+      "position_count": 180,
+      "state": 130
+    },
+    {
+      "exact_count": 23,
+      "format_count": 32,
+      "position_count": 181,
+      "state": 140
+    },
+    {
+      "exact_count": 21,
+      "format_count": 32,
+      "position_count": 178,
+      "state": 150
+    },
+    {
+      "exact_count": 24,
+      "format_count": 32,
+      "position_count": 179,
+      "state": 160
+    },
+    {
+      "exact_count": 18,
+      "format_count": 32,
+      "position_count": 170,
+      "state": 170
+    },
+    {
+      "exact_count": 22,
+      "format_count": 32,
+      "position_count": 178,
+      "state": 180
+    },
+    {
+      "exact_count": 25,
+      "format_count": 32,
+      "position_count": 184,
+      "state": 190
+    },
+    {
+      "exact_count": 25,
+      "format_count": 32,
+      "position_count": 185,
+      "state": 200
+    },
+    {
+      "exact_count": 20,
+      "format_count": 32,
+      "position_count": 177,
+      "state": 210
+    },
+    {
+      "exact_count": 24,
+      "format_count": 32,
+      "position_count": 181,
+      "state": 220
+    },
+    {
+      "exact_count": 17,
+      "format_count": 32,
+      "position_count": 160,
+      "state": 230
+    },
+    {
+      "exact_count": 18,
+      "format_count": 32,
+      "position_count": 176,
+      "state": 240
+    },
+    {
+      "exact_count": 26,
+      "format_count": 32,
+      "position_count": 183,
+      "state": 250
+    },
+    {
+      "exact_count": 25,
+      "format_count": 32,
+      "position_count": 184,
+      "state": 260
+    },
+    {
+      "exact_count": 29,
+      "format_count": 32,
+      "position_count": 188,
+      "state": 270
+    },
+    {
+      "exact_count": 28,
+      "format_count": 32,
+      "position_count": 187,
+      "state": 280
+    },
+    {
+      "exact_count": 14,
+      "format_count": 32,
+      "position_count": 161,
+      "state": 290
+    },
+    {
+      "exact_count": 25,
+      "format_count": 32,
+      "position_count": 183,
+      "state": 300
+    },
+    {
+      "exact_count": 28,
+      "format_count": 32,
+      "position_count": 187,
+      "state": 310
+    },
+    {
+      "exact_count": 27,
+      "format_count": 32,
+      "position_count": 186,
+      "state": 320
+    },
+    {
+      "exact_count": 30,
+      "format_count": 32,
+      "position_count": 190,
+      "state": 330
+    },
+    {
+      "exact_count": 30,
+      "format_count": 32,
+      "position_count": 189,
+      "state": 340
+    },
+    {
+      "exact_count": 31,
+      "format_count": 32,
+      "position_count": 190,
+      "state": 350
+    },
+    {
+      "exact_count": 31,
+      "format_count": 32,
+      "position_count": 191,
+      "state": 360
+    },
+    {
+      "exact_count": 27,
+      "format_count": 32,
+      "position_count": 187,
+      "state": 370
+    },
+    {
+      "exact_count": 28,
+      "format_count": 32,
+      "position_count": 188,
+      "state": 380
+    },
+    {
+      "exact_count": 29,
+      "format_count": 32,
+      "position_count": 189,
+      "state": 390
+    },
+    {
+      "exact_count": 31,
+      "format_count": 32,
+      "position_count": 191,
+      "state": 400
+    }
+  ]
+}

@@ -1,0 +1,225 @@
+{
+  "collection_complete": true,
+  "comparable_with_calibration": true,
+  "completed_updates": 450,
+  "controller_efficacy_evaluated": false,
+  "descriptive_prediction_counts": {
+    "always_recover": {
+      "censored_excluded": 0,
+      "correct_nonrecovery_predictions": 0,
+      "correct_recovery_predictions": 2,
+      "false_nonrecovery_predictions": 0,
+      "missed_nonrecoveries": 1,
+      "observed_not_recovered": 1,
+      "observed_recovered": 2
+    },
+    "low_loss_examples": {
+      "censored_excluded": 0,
+      "correct_nonrecovery_predictions": 0,
+      "correct_recovery_predictions": 2,
+      "false_nonrecovery_predictions": 0,
+      "missed_nonrecoveries": 1,
+      "observed_not_recovered": 1,
+      "observed_recovered": 2
+    },
+    "mean_loss": {
+      "censored_excluded": 0,
+      "correct_nonrecovery_predictions": 0,
+      "correct_recovery_predictions": 2,
+      "false_nonrecovery_predictions": 0,
+      "missed_nonrecoveries": 1,
+      "observed_not_recovered": 1,
+      "observed_recovered": 2
+    },
+    "mean_loss_variability": {
+      "censored_excluded": 0,
+      "correct_nonrecovery_predictions": 1,
+      "correct_recovery_predictions": 1,
+      "false_nonrecovery_predictions": 1,
+      "missed_nonrecoveries": 0,
+      "observed_not_recovered": 1,
+      "observed_recovered": 2
+    },
+    "stable_examples": {
+      "censored_excluded": 0,
+      "correct_nonrecovery_predictions": 0,
+      "correct_recovery_predictions": 2,
+      "false_nonrecovery_predictions": 0,
+      "missed_nonrecoveries": 1,
+      "observed_not_recovered": 1,
+      "observed_recovered": 2
+    }
+  },
+  "episode_count": 3,
+  "episodes": [
+    {
+      "confirmation_state": 220,
+      "drop_answers": 2,
+      "feature_window": [
+        151,
+        170
+      ],
+      "features": {
+        "low_loss_examples": 0.002591273027383067,
+        "mean_loss": 0.0023818149619940776,
+        "mean_loss_variability": 0.0,
+        "stable_examples": 0.002591273027383067
+      },
+      "future_scores": [
+        {
+          "score": 22,
+          "state": 180
+        },
+        {
+          "score": 15,
+          "state": 190
+        },
+        {
+          "score": 20,
+          "state": 200
+        },
+        {
+          "score": 25,
+          "state": 210
+        },
+        {
+          "score": 25,
+          "state": 220
+        }
+      ],
+      "horizon_end": 220,
+      "observed_drop": 2,
+      "observed_score": 20,
+      "outcome": "RECOVERED_WITHIN_50",
+      "predictions": {
+        "always_recover": "RECOVERED_WITHIN_50",
+        "low_loss_examples": "RECOVERED_WITHIN_50",
+        "mean_loss": "RECOVERED_WITHIN_50",
+        "mean_loss_variability": "RECOVERED_WITHIN_50",
+        "stable_examples": "RECOVERED_WITHIN_50"
+      },
+      "recovery_target": 21,
+      "reference": 22,
+      "start_state": 170
+    },
+    {
+      "confirmation_state": 250,
+      "drop_answers": 2,
+      "feature_window": [
+        211,
+        230
+      ],
+      "features": {
+        "low_loss_examples": 0.0,
+        "mean_loss": 0.022596834894375167,
+        "mean_loss_variability": 0.0030838153476471647,
+        "stable_examples": 0.0
+      },
+      "future_scores": [
+        {
+          "score": 24,
+          "state": 240
+        },
+        {
+          "score": 25,
+          "state": 250
+        },
+        {
+          "score": 28,
+          "state": 260
+        },
+        {
+          "score": 27,
+          "state": 270
+        },
+        {
+          "score": 28,
+          "state": 280
+        }
+      ],
+      "horizon_end": 280,
+      "observed_drop": 4,
+      "observed_score": 21,
+      "outcome": "RECOVERED_WITHIN_50",
+      "predictions": {
+        "always_recover": "RECOVERED_WITHIN_50",
+        "low_loss_examples": "RECOVERED_WITHIN_50",
+        "mean_loss": "RECOVERED_WITHIN_50",
+        "mean_loss_variability": "NO_CONFIRMED_RECOVERY_WITHIN_50",
+        "stable_examples": "RECOVERED_WITHIN_50"
+      },
+      "recovery_target": 24,
+      "reference": 25,
+      "start_state": 230
+    },
+    {
+      "confirmation_state": null,
+      "drop_answers": 2,
+      "feature_window": [
+        301,
+        320
+      ],
+      "features": {
+        "low_loss_examples": 6.156331468943676e-05,
+        "mean_loss": 0.002418041350599382,
+        "mean_loss_variability": 0.0004037183407090139,
+        "stable_examples": 6.156331468943676e-05
+      },
+      "future_scores": [
+        {
+          "score": 25,
+          "state": 330
+        },
+        {
+          "score": 23,
+          "state": 340
+        },
+        {
+          "score": 22,
+          "state": 350
+        },
+        {
+          "score": 22,
+          "state": 360
+        },
+        {
+          "score": 24,
+          "state": 370
+        }
+      ],
+      "horizon_end": 370,
+      "observed_drop": 2,
+      "observed_score": 27,
+      "outcome": "NO_CONFIRMED_RECOVERY_WITHIN_50",
+      "predictions": {
+        "always_recover": "RECOVERED_WITHIN_50",
+        "low_loss_examples": "RECOVERED_WITHIN_50",
+        "mean_loss": "RECOVERED_WITHIN_50",
+        "mean_loss_variability": "NO_CONFIRMED_RECOVERY_WITHIN_50",
+        "stable_examples": "RECOVERED_WITHIN_50"
+      },
+      "recovery_target": 28,
+      "reference": 29,
+      "start_state": 320
+    }
+  ],
+  "mechanical_verdict": "VERIFICA_MECCANICA_COMPLETATA",
+  "note": "Technical success is independent of prediction correctness. Non-recovery means no confirmed recovery within 50, never permanent damage.",
+  "observed_both_outcome_classes": true,
+  "outcome_counts": {
+    "CENSORED": 0,
+    "NO_CONFIRMED_RECOVERY_WITHIN_50": 1,
+    "RECOVERED_WITHIN_50": 2
+  },
+  "population_specificity_estimated": false,
+  "predictive_superiority": "NON_VALUTABILE_SINGLE_RUN_MECHANICS_ONLY",
+  "predictor_validated": false,
+  "protocol_sha256": "5dce902d483572d8486940f8ada80d3906958f4e380af5dca3f385fc4000dc25",
+  "reason": "Decisioni registrate prima dell'aggiornamento successivo e riprodotte esattamente offline.",
+  "regular_decisions": 46,
+  "rule_sha256": "c40b2492597adc9dad12062051a8a476dd2d8c8ad2207353d2d362219bd21cfc",
+  "schema": "recovery-mechanics-107-v1",
+  "seed": 107,
+  "status": "COMPLETE",
+  "stress_runs_executed": 0
+}

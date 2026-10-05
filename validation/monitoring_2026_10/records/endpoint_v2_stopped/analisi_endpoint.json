@@ -1,0 +1,50 @@
+{
+  "confronto_intero_orizzonte_disponibile": false,
+  "limite": "Un seme, un run per braccio, compito procedurale: nessuna stima affidabile di falsi allarmi, causalita o generalizzazione",
+  "nota_confronto": "Confronto sull intero orizzonte sospeso: almeno un run e incompleto, assente o fermato.",
+  "onset_update": 217,
+  "per_braccio": {
+    "abrupt_lr": {
+      "status": "NON_ESEGUITO"
+    },
+    "healthy": {
+      "accuracy": [
+        {
+          "step": 0,
+          "value": 0.0
+        },
+        {
+          "step": 10,
+          "value": 0.0
+        },
+        {
+          "step": 20,
+          "value": 0.0
+        },
+        {
+          "step": 30,
+          "value": 0.0
+        },
+        {
+          "step": 40,
+          "value": 0.0
+        }
+      ],
+      "completed_updates": 40,
+      "endpoint_repeatability_failed": true,
+      "final_accuracy": null,
+      "generation_count": 5,
+      "last_observed_accuracy": 0.0,
+      "last_observed_state": 40,
+      "planned_updates": 400,
+      "reason": "trained_state_generation_not_repeatable",
+      "rules": {},
+      "status": "PROBE_FAILED"
+    }
+  },
+  "primo_stato_esposto": 218,
+  "regole_sha256": "6cadb8f4bf25d2672ea62cae9c02eeb4a0f117f6cb87d16feacde7418410c359",
+  "schema": "phi-endpoint-v2",
+  "scopo": "Pilota descrittivo di un endpoint comportamentale; nessun verdetto automatico di utilita o causalita",
+  "verdetto_utilita": null
+}
