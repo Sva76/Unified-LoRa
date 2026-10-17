@@ -1,5 +1,18 @@
 # Unified-LoRA Architecture — historical controller design
 
+> **Clarification — 17 October 2026.** The historical text below is retained verbatim.
+> References to φ_jump being “validated” or showing useful detection describe
+> historical observations, not validation on correctly aligned fine-tuning.
+> The completion-loss alignment defect requires corrected training reruns.
+> The controller snapshots LoRA A/B, not complete optimizer/RNG state.
+> Nested rank slicing preserves allocated factors, but changing rank also
+> changes alpha/r and does not guarantee unchanged effective updates or smooth output.
+> Raw φ_dev drives the FSM; its EMA is a distinct telemetry field.
+> See [corrections](../validation/corrections_2026_09.md),
+> [verification scope](measurement_and_weight_verification.md) and
+> [October evidence](../validation/monitoring_2026_10/README.md).
+> No new experimental result is introduced here.
+
 > **Status (August 2026): historical / falsified controller architecture.**
 >
 > This document describes the architecture that motivated the original

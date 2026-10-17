@@ -1,5 +1,20 @@
 # Results
 
+> **Clarification — 17 October 2026.** The August text below is retained verbatim.
+> Its positive φ_jump detection descriptions refer to the original Tests 5–7
+> task, subsequently found to have a completion-loss alignment defect.
+> The historical separation, classification and alarm counts do not validate
+> correctly aligned fine-tuning; alarm counts depend on warmup and persistence.
+> The latency comparison does not isolate actuator effects because detectors differ.
+> Seed 104 later reached Spearman 0.689 versus a diagnostic loss-level baseline
+> of 0.702. Seed 107 recorded two recoveries and one episode without confirmed
+> recovery within 50 updates; all five rules were correct on two of three episodes.
+> Predictive superiority remains unestablished.
+> See [corrections](../validation/corrections_2026_09.md),
+> [October evidence](../validation/monitoring_2026_10/README.md) and
+> [verification scope](measurement_and_weight_verification.md).
+> No new training or offline replay was performed for this clarification.
+
 **Status: August 2026.** Earlier versions of this page reported single-run
 results (including a noise-sweep table) that were superseded by the multi-seed
 falsification campaign. The current evidence now includes three distinct

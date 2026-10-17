@@ -48,3 +48,6 @@ not just a parameter-efficient fine-tuning method.
 Without control: weights diverge.  
 With Unified-LoRA: weights remain bounded.
 """
+
+# Documentation clarification (17 October 2026): see
+# docs/measurement_and_weight_verification.md for direct weight-check requirements.

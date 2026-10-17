@@ -25,6 +25,50 @@ superiority. Non-recovery within 50 updates does not mean permanent damage.
 · [seed-104 result](validation/monitoring_2026_10/records/stability_104/esito104.json)
 · [seed-107 result](validation/monitoring_2026_10/records/mechanics_107/esito107.json).
 
+## Method, results and verification scope
+
+**Documentation clarification: 17 October 2026. No new training results.**
+
+The original adaptive rank/LR controller and the subsequent passive monitoring
+studies are separate research stages. The controller did not outperform
+AdaLoRA in the reported multi-seed comparisons. Historical Tinker Tests 5–7
+had a completion-loss alignment defect; corrected code requires new training
+evidence.
+
+The October study asks whether per-example loss features help predict recovery
+after an independently measured drop in generated-answer accuracy.
+
+| Check | Recorded result | Supported conclusion |
+|---|---|---|
+| Seed 102 | Five forward evaluations at each of four states returned identical recorded mean and per-example losses | Repeatability at tested states and recorded precision |
+| Seed 104 | Spearman 0.689; diagnostic loss-level baseline 0.702 | Frozen ranking criterion met on one trajectory; added value unestablished |
+| Seed 107 | Two recoveries and one episode without confirmed recovery within 50 updates; all five rules correct on two of three episodes | Prospective recording and exact offline replay documented; predictive superiority unestablished |
+
+### Loss repeatability is not weight identity
+
+Equal recorded losses do not establish identical weights or complete checkpoint
+restoration. The October bundles contain checkpoint/export references, not
+model-weight files sufficient for independent tensor-level verification.
+The cause of previous restoration discrepancies remains unresolved.
+
+The historical local controller snapshots LoRA factors A/B. It does not also
+restore optimizer or random number generator state.
+
+### Offline verification
+
+```bash
+python validation/monitoring_2026_10/verify_evidence.py
+python validation/monitoring_2026_10/verify_evidence.py --replay
+```
+
+These commands check checksum consistency and, with --replay, recompute the
+archived 104/107 analyses. They do not rerun training, compare model weights
+or validate a predictor. They were not rerun for this documentation update.
+
+See [measurement and weight verification](docs/measurement_and_weight_verification.md)
+for the proposed tensor-level protocol and the
+[October report](validation/monitoring_2026_10/README.md) for full evidence.
+
 The September account below is retained verbatim as the historical record.
 Its statements about outstanding work describe that stage; the October report
 documents the subsequent monitoring experiments and their separate limitations.
